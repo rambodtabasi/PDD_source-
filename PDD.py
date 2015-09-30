@@ -1020,7 +1020,7 @@ if __name__ == "__main__":
             left_sum = saturation[0:799].sum(axis=0)
             right_sum = saturation[800:].sum(axis=0)
             total_sum = saturation.sum(axis=0)
-            if (i==10 or i==20 or i==50 or i==500 or i==900 or i==998  or 
+            if (i==10 or i==20 or i==60 or i==500 or i==900 or i==998  or 
                     i==2000 or i==5000 or i==10000):
                 print left_sum
                 print right_sum
