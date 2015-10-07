@@ -52,9 +52,10 @@ class PD(NOX.Epetra.Interface.Required,
 
 	# Domain properties
         self.iteration = 0
+        self.j=0
         self.num_nodes = num_nodes
         self.length = length
-        self.time_stepping = 0.06
+        self.time_stepping = 0.05
         self.grid_spacing = float(length) / (num_nodes - 1)
         self.bc_values = bc_values
         self.symm_bcs = symm_bcs
@@ -78,7 +79,7 @@ class PD(NOX.Epetra.Interface.Required,
 	self.compressibility = 1.0
         self.density = 1000.0
         self.steps = 3
-        self.R = 0.3
+        self.R = 1
 
         #Setup problem grid
         self.create_grid(length, width)
@@ -350,7 +351,7 @@ class PD(NOX.Epetra.Interface.Required,
 	#Allocate the neighborhood array, fill with -1's as placeholders
         my_neighbors_temp = np.ones((my_num_rows, my_row_max_entries), 
                 dtype=np.int32) * -1
-	
+        
 	#Extract the local node ids from the graph (except on the diagonal) 
         #and fill neighborhood array
         for rid in range(my_num_rows):
@@ -431,7 +432,9 @@ class PD(NOX.Epetra.Interface.Required,
 	self.vol = self.grid_spacing * self.grid_spacing
 
       
-      #Extract x,y, amd p [owned] vectors 
+        #Extract x,y, amd p [owned] vectors 
+        neighbor = self.my_neighbors 
+
         my_p = my_ps[p_local_indices]
         my_s = my_ps[s_local_indices]
         self.saturation_n = my_ps[p_local_indices]
@@ -442,9 +445,28 @@ class PD(NOX.Epetra.Interface.Required,
 	self.my_y_overlap = my_y_overlap
 
 
+
+        #printing neighborhood of a point to check that the domain is being 
+        #split correctly 
+        #size = self.my_neighbors.shape[1]
+        #print size
+        #x= my_x[300]
+        #y=my_y[300]
+        #N=neighbor[300,:]
+        #x1=  my_x[N]
+        #x2= np.append(x,x1)
+        #y1=  my_y[N]
+        #y2=np.append(y,y1)
+        #print x
+        #print y
+        #plt.scatter(x2,y2)
+        #plt.show()
+
 	# DOMAIN DECOMP VIZ
 	#plt.scatter( my_x,my_y)
-	#plt.show()
+        #plt.show()
+        
+
 	
 	self.my_pressure = my_p
 	self.my_saturation = my_s
@@ -488,8 +510,9 @@ class PD(NOX.Epetra.Interface.Required,
         BC_Bottom_Poly = [(-hgs,-hgs),(l+hgs,-hgs),(l+hgs,hgs),
                 (-hgs,hgs),(-hgs,-hgs)]
 
-        neighbor = self.my_neighbors 
+        
         BC_Center = neighbor[780,:]
+        BC_Center = np.append(BC_Center,780)
 
         BC_Center_s = np.zeros(len(BC_Center), dtype=np.int32)
 	BC_Center_p = np.zeros(len(BC_Center), dtype=np.int32)
@@ -584,25 +607,17 @@ class PD(NOX.Epetra.Interface.Required,
 	#self.BC_Center_fill_p = BC_Center_fill_p
 	#self.BC_Center_fill_s = BC_Center_fill_s
 
-        
         self.BC_sat = 0
-        
-
-       
-
-
         return 
 
         
-    def compute_flow(self, pressure, flow, flag, saturation):
+    def compute_flow(self, pressure, flow, saturation, flag):
         """ 
             Computes the peridynamic flow due to non-local pressure 
             differentials. Uses the formulation from Kayitar, Foster, & Sharma.
         """
         self.counter += 1 
         comm = self.comm 
-
-
 
 	#Access the field data
         neighbors = self.my_neighbors
@@ -617,7 +632,6 @@ class PD(NOX.Epetra.Interface.Required,
 	compressibility = self.compressibility
         horizon = self.horizon
         density = self.density 
-
         
         # calling the saturation functions
         saturation_n = self.saturation_n
@@ -626,13 +640,12 @@ class PD(NOX.Epetra.Interface.Required,
         R=self.R 
         ones = np.ones(num_owned)
         #viscos = np.exp(R*(ones-saturation_n))* (1.0/density)
-        viscos = np.exp(R*(ones-saturation))* (1.0/density)
-        #viscos = ones
-        #viscos[:] = self.viscosity 
+        #viscos = np.exp(R*(ones-saturation))* (1.0/density)
+        viscos = ones * 0.0027
+        viscos[:] = self.viscosity 
         #Compute pressure state
         pressure_state = ma.masked_array(pressure[neighbors] - 
                 pressure[:num_owned,None], mask=neighbors.mask)
-
 
         #compute the nonlocal permeability from the local constitutive tensor
 
@@ -652,7 +665,6 @@ class PD(NOX.Epetra.Interface.Required,
         xi_dot_permeability_dot_xi = (permeability_dot_ref_pos_state_x * 
                 ref_pos_state_x + permeability_dot_ref_pos_state_y * 
                 ref_pos_state_y)
-
         #Compute the peridynamic flux state
         alpha = 2.0
         scale_factor = 2.0 * (4.0 - alpha) / (np.pi * 
@@ -662,14 +674,14 @@ class PD(NOX.Epetra.Interface.Required,
 
         flux_state = (scale_factor * ref_mag_state_invert *
                 xi_dot_permeability_dot_xi * pressure_state)
-
         #Integrate nodal flux
         #Sum the flux contribution from j nodes to i node
         flow[:] = 0.0
+
 	#flow[:num_owned] += (flux_state * volumes[neighbors]).sum(axis=1)
-	flow[:] += (flux_state * volumes[neighbors]).sum(axis=1)
-        
-        
+	flow[:num_owned] += (flux_state * volumes[neighbors]).sum(axis=1)
+        print flow.shape 
+        print "flow shape" 
         
         
         #flow_1 = flow
@@ -687,11 +699,11 @@ class PD(NOX.Epetra.Interface.Required,
 	return 
     
   
-    def compute_saturation(self, saturation, trans, flag):
+    def compute_saturation(self, saturation, trans,pressure , flag):
         #    Computes the peridynamic saturation due to non-local pressure 
         #    differentials. 
 	#Access the field data
-
+        print 1.1
         neighbors = self.my_neighbors
 	neighborhood_graph = self.get_balanced_neighborhood_graph()
 	balanced_map = self.get_balanced_map()
@@ -708,21 +720,21 @@ class PD(NOX.Epetra.Interface.Required,
         density = self.density 
         time_stepping = self.time_stepping
         
-        # calling the pressure functions
+        """# calling the pressure functions
         p_local_overlap_indices = self.p_local_overlap_indices 
-        pressure = self.ps_overlap[p_local_overlap_indices]
+        pressure = self.ps_overlap[p_local_overlap_indices]"""
         
         #define viscosity dependence on saturation
         # R is the initial ratio between the two viscosities. We are taking R as 2 here.
         R=self.R 
         size= saturation.shape
         ones = np.ones(size)
-        #viscos = np.exp(R*(ones-saturation_n)) * (1.0/density)
-        viscos = np.exp(R*(ones-saturation))*(1.0/ density) 
-        #viscos = ones
-        #viscos[:] = self.viscosity 
+        #viscos = np.exp(R*(ones-saturation))*(1.0/ density) 
+        viscos = ones * 0.0027
 
-
+        
+        
+        print 1.2
         #Compute saturation and pressure state
         saturation_state = ma.masked_array(saturation[neighbors]
             -saturation[:num_owned,None], mask=neighbors.mask)
@@ -732,7 +744,10 @@ class PD(NOX.Epetra.Interface.Required,
             -saturation_n[:num_owned,None], mask=neighbors.mask)
         viscos_sum = ma.masked_array(viscos[neighbors] + 
                 viscos[:num_owned,None], mask=neighbors.mask)
-
+        
+        
+        
+        print 1.3
 
         #Intermediate calculations
         ### equation 26 from the NL conversion document ###
@@ -753,6 +768,8 @@ class PD(NOX.Epetra.Interface.Required,
         term_2_x = scale_factor_2*(pressure_state )* (ref_pos_state_x) * term_2_denom
 
         sum_term_2_x = ((term_2_x)*volumes[neighbors]).sum(axis=1)
+      
+        print 1.4
         
         term_2_y = scale_factor_2*(pressure_state )* (ref_pos_state_y) * term_2_denom
 
@@ -767,27 +784,52 @@ class PD(NOX.Epetra.Interface.Required,
         sum_term_3_x = ((term_3_x)*volumes[neighbors]).sum(axis=1) 
         
         
+        print 1.45
         term_3_y = scale_factor_3 * ( saturation_state ) * (ref_pos_state_y) * term_3_denom
             
         sum_term_3_y = ((term_3_y)*volumes[neighbors]).sum(axis=1)
 
         #sum_terms_23 = ((term_3_x * term_2_x + term_3_y * term_2_y)*volumes[neighbors]).sum(axis=1)
 
-        sum_terms_23 = (permeability[0,0]/(density*viscos)) * (sum_term_2_x * sum_term_3_x + sum_term_2_y * sum_term_3_y)
+
+        sum_terms_23 = (permeability[0,0]/(density*viscos[:num_owned])) * (sum_term_2_x * sum_term_3_x + sum_term_2_y * sum_term_3_y)
+        
+        
+
+        print 1.5 
 
 	term_4_denom = term_2_denom
-
+        print 1.6
         term_4 = scale_factor_4 * viscos_sum * saturation_state * term_4_denom
         
         sum_term_4 =  ((term_4)*volumes[neighbors]).sum(axis=1)
 
+        #print np.amax(sum_term_4/sum_terms_23)
+        print 1.7
         term_contributions =  sum_terms_23  + sum_term_4 
-
-        residual = ((saturation - saturation_n) / time_stepping )- term_contributions
+        
+        """
+        if(self.j>1):
+            print self.j
+            comm=self.comm
+            x = self.get_x() 
+            y = self.get_y() 
+            x_plot = comm.GatherAll(x).flatten()
+            y_plot = comm.GatherAll(y).flatten()
+            plt.scatter( x,y, marker = 'p', c = term_contributions , s = 50 )
+            plt.colorbar()
+            plt.title('pressure state')
+            plt.show()
+        """
+        print 1.8
+        residual = (((saturation[num_owned] - saturation_n[num_owned]) / time_stepping )- term_contributions)
         #Integrate nodal flux
         #Sum the flux contribution from j nodes to i node
         trans[:] = 0.0
 	trans[:num_owned] += (residual)
+        print trans.shape
+        print "trans shape"
+        print 1.9
         return 
 
     ###########################################################################
@@ -804,7 +846,6 @@ class PD(NOX.Epetra.Interface.Required,
 
 	    neighborhood_graph = self.get_balanced_neighborhood_graph()
 	    num_owned = neighborhood_graph.NumMyRows()
-           
 	    p_local_indices = self.p_local_indices 
 	    s_local_indices = self.s_local_indices 
 	    p_local_overlap_indices = self.p_local_overlap_indices 
@@ -818,22 +859,24 @@ class PD(NOX.Epetra.Interface.Required,
 	    if self.jac_comp == False:
 		self.ps_overlap.Import(x, ps_overlap_importer, 
 			Epetra.Insert)
-
+            
 	    my_p_overlap = self.ps_overlap[p_local_overlap_indices]
             my_s_overlap = self.ps_overlap[s_local_overlap_indices]
-
+            
 	    #Compute the internal flow
             self.compute_flow(my_p_overlap, self.my_flow_overlap, 
                     my_s_overlap, flag)
+            
             #compute saturation field
-            self.compute_saturation(my_s_overlap, self.my_trans_overlap,flag)
+            self.compute_saturation(my_s_overlap, self.my_trans_overlap, my_p_overlap ,flag)
 	    #Communicate values from worker vectors (owned + ghosts) back to 
             #owned only
+            #print 2.5
 	    self.my_flow.Export(self.my_flow_overlap, overlap_importer, 
 		    Epetra.Add) 
             self.my_trans.Export(self.my_trans_overlap,overlap_importer,
                    Epetra.Add)
-	    
+	    #print 3 
 	    ### PRESSURE BOUNDARY CONDITION & RESIDUAL APPLICATION ### 
             self.F_fill_overlap[p_local_overlap_indices]=self.my_flow_overlap
             self.F_fill_overlap[s_local_overlap_indices]=self.my_trans_overlap
@@ -846,7 +889,7 @@ class PD(NOX.Epetra.Interface.Required,
             #temp_sat = F[s_local_indices]
 
             #Boundary conditions 
-            
+            #print 4 
             if (self.iteration < 1):
                 
                 #Applying initial condition on the left boundary 
@@ -856,14 +899,13 @@ class PD(NOX.Epetra.Interface.Required,
                 #applying initial condition for a neighborhood inside the domain 
                 F[self.BC_Center_s] = x[self.BC_Center_s]- 1.0
 
-
+            #print 5
             F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 1000.0
             #F[self.BC_Right_fill_p] = self.F_fill[self.BC_Right_fill_p] - 1.0e-6
             F[self.BC_Right_fill_p] = x[self.BC_Right_fill_p] - 1.0
 
             
             self.i = self.i + 1
-
             
         except Exception, e:
             print "Exception in PD.computeF method"
@@ -887,7 +929,6 @@ class PD(NOX.Epetra.Interface.Required,
 	return True
 	
 
-    #Getter functions
     #Getter functions
     def get_balanced_map(self):
         return self.balanced_map
@@ -986,6 +1027,7 @@ if __name__ == "__main__":
         for i in range(end_range):
             problem.iteration=i 
             print i
+            problem.j=i
             graph = problem.get_balanced_neighborhood_graph()
             balanced_map = problem.get_balanced_map()
 
@@ -996,6 +1038,7 @@ if __name__ == "__main__":
             fdc_pressure = NOX.Epetra.FiniteDifferenceColoring(
                     nl_params, problem, init_ps_guess, 
                     ps_graph, False, False)
+            print init_ps_guess.shape
             fdc_pressure.computeJacobian(init_ps_guess)
             jacobian = fdc_pressure.getUnderlyingMatrix()
             jacobian.FillComplete()
@@ -1015,26 +1058,22 @@ if __name__ == "__main__":
             problem.saturation_n = solution[s_local_indices]
             #if (i==20 or i==40 or i==60 or i==80 or i==99):
             #plotting the results  
-            pressure = solution[p_local_indices]
-            saturation = solution[s_local_indices]
-            left_sum = saturation[0:799].sum(axis=0)
-            right_sum = saturation[800:].sum(axis=0)
-            total_sum = saturation.sum(axis=0)
-            if (i==10 or i==20 or i==50 or i==500 or i==900 or i==998  or 
+            sol_pressure = solution[p_local_indices]
+            sol_saturation = solution[s_local_indices]
+            center_sat = np.amax(sol_saturation)
+            if (i==0 or i==9 or i==19 or i==199 or i==900 or i==998  or 
                     i==2000 or i==5000 or i==10000):
-                print left_sum
-                print right_sum
-                print total_sum
+                print center_sat
                 x = problem.get_x() 
                 y = problem.get_y() 
 
                 x_plot = comm.GatherAll(x).flatten()
                 y_plot = comm.GatherAll(y).flatten()
-                plt.scatter( x,y, marker = 's', c = pressure, s = 50)
+                plt.scatter( x,y, marker = 's', c = sol_pressure, s = 50)
                 plt.colorbar()
                 plt.title('Pressure')
                 plt.show()
-                plt.scatter( x,y, marker = 's', c = saturation, s = 50 )
+                plt.scatter( x,y, marker = 's', c = sol_saturation, s = 50 )
                 plt.colorbar()
                 plt.title('Saturation')
                 plt.show()
