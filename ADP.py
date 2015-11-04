@@ -78,7 +78,7 @@ class PD(NOX.Epetra.Interface.Required,
 	self.compressibility = 1.0
         self.density = 1000.0
         self.steps = 3
-        self.R = 1
+        self.R = 0
 
         #Setup problem grid
         self.create_grid(length, width)
@@ -920,6 +920,8 @@ if __name__ == "__main__":
         problem.iteration=0
         end_range = 10001
         for problem.iteration in range(end_range):
+            i = problem.iteration
+            print i
             graph = problem.get_balanced_neighborhood_graph()
             balanced_map = problem.get_balanced_map()
 
@@ -928,7 +930,7 @@ if __name__ == "__main__":
 
             problem.jac_comp = True
             fdc_pressure = NOX.Epetra.FiniteDifferenceColoring(
-                    nl_params, problem, init_ps_guess, 
+                   nl_params, problem, init_ps_guess, 
                     ps_graph, False, False)
             fdc_pressure.computeJacobian(init_ps_guess)
             jacobian = fdc_pressure.getUnderlyingMatrix()
@@ -967,8 +969,7 @@ if __name__ == "__main__":
             y_plot = comm.GatherAll(y).flatten()
             if problem.rank==0 : 
 
-                if (i==0 or i==9 or i==19 or i==49 or i==99 or i==998  or 
-                    i==2000 or i==5000 or i==10000):
+                if (i==499):
                     #if (problem.rank==0):
                   
                                        #plt.scatter( x,y, marker = 's', c = sol_pressure, s = 50)
