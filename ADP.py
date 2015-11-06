@@ -523,6 +523,7 @@ class PD(NOX.Epetra.Interface.Required,
 	BC_Left_Index = np.sort( BC_Left_Edge )
 	BC_Right_Index = np.sort( BC_Right_Edge )
 	BC_Bottom_Index = np.sort( BC_Bottom_Edge )
+        self.BC_Bottom_Index = BC_Bottom_Index
 	#BC_Center_Index = np.sort( BC_Center_Edge)
 
 	BC_Left_fill = np.zeros(len(BC_Left_Edge), dtype=np.int32)
@@ -619,6 +620,10 @@ class PD(NOX.Epetra.Interface.Required,
         #Compute pressure state
         pressure_state = ma.masked_array(pressure[neighbors] - 
                 pressure[:num_owned,None], mask=neighbors.mask)
+        
+        vel_bc_fixer = np.ones(pressure[:num_owned].shape)
+        for item in self.BC_Bottom_fill :
+            vel_bc_fixer[item]=0
 
         #compute the nonlocal permeability from the local constitutive tensor
 
@@ -646,6 +651,10 @@ class PD(NOX.Epetra.Interface.Required,
         ref_mag_state_invert = (ref_mag_state ** ( 2.0 * alpha )) ** -1.0
         flux_state = (scale_factor * ref_mag_state_invert *
                 xi_dot_permeability_dot_xi * pressure_state)
+        # multiply flux_state by this correction factor which is supposed to 
+        # mimic no velocity BC for top and bottom Boundaries 
+        #flux_state = flux_state * vel_bc_fixer[:,None]
+        
         #Integrate nodal flux
         #Sum the flux contribution from j nodes to i node
         flow[:] = 0.0
@@ -673,6 +682,11 @@ class PD(NOX.Epetra.Interface.Required,
         horizon = self.horizon
         density = self.density 
         time_stepping = self.time_stepping
+        
+        vel_bc_fixer = np.ones(pressure[:num_owned].shape)
+        for item in self.BC_Bottom_fill :
+            vel_bc_fixer[item]=0
+
         
         """# calling the pressure functions
         p_local_overlap_indices = self.p_local_overlap_indices 
@@ -723,7 +737,12 @@ class PD(NOX.Epetra.Interface.Required,
             
         sum_term_3_y = ((term_3_y)*volumes[neighbors]).sum(axis=1)
 
+        #adding fixer mimics the situation where the 
+        #permeability is zero on the top and bottom boundary 
+        #sum_terms_23 = vel_bc_fixer * (permeability[0,0]/(density*viscos[:num_owned])) * (sum_term_2_x * sum_term_3_x + sum_term_2_y * sum_term_3_y)
+        
         sum_terms_23 = (permeability[0,0]/(density*viscos[:num_owned])) * (sum_term_2_x * sum_term_3_x + sum_term_2_y * sum_term_3_y)
+        
         
 	term_4_denom = term_2_denom
         term_4 = scale_factor_4 * viscos_sum * saturation_state * term_4_denom
@@ -968,11 +987,7 @@ if __name__ == "__main__":
             x_plot = comm.GatherAll(x).flatten()
             y_plot = comm.GatherAll(y).flatten()
             if problem.rank==0 : 
-
-                if (i==499):
-                    #if (problem.rank==0):
-                  
-                                       #plt.scatter( x,y, marker = 's', c = sol_pressure, s = 50)
+                if (i==10 or i==20 or i==50 or i==100 or i ==500):               
                     plt.scatter( x_plot,y_plot, marker = 's', c = sol_p_plot, s = 50)
                     plt.colorbar()
                     plt.title('Pressure')
