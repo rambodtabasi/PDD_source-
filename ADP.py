@@ -481,9 +481,15 @@ class PD(NOX.Epetra.Interface.Required,
 	BC_Right_Poly = [ (l-(2.0*gs+hgs),-hgs), (l+hgs,-hgs), (l+hgs,l+hgs), 
 		(l-(2.0*gs+hgs),l+hgs), (l-(2.0*gs+hgs),-hgs)]
         
-        BC_Bottom_Poly = [(-hgs,-hgs),(l+hgs,-hgs),(l+hgs,hgs),
-                (-hgs,hgs),(-hgs,-hgs)]
+        BC_Bottom_Poly = [(-hgs,-hgs),(l+hgs,-hgs),(l+hgs,2.0*gs+hgs),
+                (-hgs,2.0*gs+hgs),(-hgs,-hgs)]
 
+        BC_Top_Poly = [(-hgs,l-(2.0*gs+hgs)),(l+hgs,l-(2.0*gs+hgs)),
+                (l+hgs,l+hgs),(-hgs,l+hgs),(-hgs,l-(2.0*gs+hgs))]
+
+        Bel_Bottom_Poly = [(-hgs,l-(3.0*gs+hgs)),(l+hgs,l-(3.0*gs+hgs)),
+                (l+hgs,l-(2.0*gs+hgs)),(-hgs,l-(2.0*gs+hgs)),(-hgs,l-(3.0*gs+hgs))]
+                
         
         #BC_Center = neighbor[780,:]
         #BC_Center = np.append(BC_Center,780)
@@ -515,6 +521,17 @@ class PD(NOX.Epetra.Interface.Required,
 	node_indices = np.arange(num_elements, dtype=np.int)
 	BC_Bottom_Edge = node_indices[bool_arr]
         
+        polygon = path.Path( Bel_Bottom_Poly, codes=None)
+	bool_arr = polygon.contains_points( balanced_nodes, radius =1.0e-10)
+	node_indices = np.arange(num_elements, dtype=np.int)
+	Bel_Bottom_Edge = node_indices[bool_arr]
+
+        polygon = path.Path( BC_Top_Poly, codes=None)
+	bool_arr = polygon.contains_points( balanced_nodes, radius =1.0e-10)
+	node_indices = np.arange(num_elements, dtype=np.int)
+	BC_Top_Edge = node_indices[bool_arr]
+
+
         #polygon = path.path( BC_Center_Poly, codes=None)
         #bool_arr = polygon.contains_points( balanced_nodes, radius =1.0e-10)
 	#node_indices = np.arange(num_elements, dtype=np.int)
@@ -523,7 +540,9 @@ class PD(NOX.Epetra.Interface.Required,
 	BC_Left_Index = np.sort( BC_Left_Edge )
 	BC_Right_Index = np.sort( BC_Right_Edge )
 	BC_Bottom_Index = np.sort( BC_Bottom_Edge )
-        self.BC_Bottom_Index = BC_Bottom_Index
+	Bel_Bottom_Index = np.sort( Bel_Bottom_Edge )
+        BC_Top_Index = np.sort( BC_Top_Edge)
+
 	#BC_Center_Index = np.sort( BC_Center_Edge)
 
 	BC_Left_fill = np.zeros(len(BC_Left_Edge), dtype=np.int32)
@@ -537,6 +556,15 @@ class PD(NOX.Epetra.Interface.Required,
 	BC_Bottom_fill = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
 	BC_Bottom_fill_p = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
 	BC_Bottom_fill_s = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
+        
+        Bel_Bottom_fill = np.zeros(len(Bel_Bottom_Edge), dtype=np.int32)
+	Bel_Bottom_fill_p = np.zeros(len(Bel_Bottom_Edge), dtype=np.int32)
+	Bel_Bottom_fill_s = np.zeros(len(Bel_Bottom_Edge), dtype=np.int32)
+        
+        BC_Top_fill = np.zeros(len(BC_Top_Edge), dtype=np.int32)
+	BC_Top_fill_p = np.zeros(len(BC_Top_Edge), dtype=np.int32)
+	BC_Top_fill_s = np.zeros(len(BC_Top_Edge), dtype=np.int32)
+
         
         #BC_Center_fill = np.zeros(len(BC_Center_Edge), dtype=np.int32)
 	#BC_Center_fill_p = np.zeros(len(BC_Center_Edge), dtype=np.int32)
@@ -558,6 +586,20 @@ class PD(NOX.Epetra.Interface.Required,
 	    BC_Bottom_fill[item] = BC_Bottom_Index[item]
 	    BC_Bottom_fill_p[item] = 2*BC_Bottom_Index[item]
 	    BC_Bottom_fill_s[item] = 2*BC_Bottom_Index[item]+1
+
+        
+        for item in range(len( Bel_Bottom_Index ) ):
+	    Bel_Bottom_fill[item] = Bel_Bottom_Index[item]
+	    Bel_Bottom_fill_p[item] = 2*Bel_Bottom_Index[item]
+	    Bel_Bottom_fill_s[item] = 2*Bel_Bottom_Index[item]+1
+
+
+
+        for item in range(len( BC_Top_Index ) ):
+	    BC_Top_fill[item] = BC_Top_Index[item]
+	    BC_Top_fill_p[item] = 2*BC_Top_Index[item]
+	    BC_Top_fill_s[item] = 2*BC_Top_Index[item]+1
+
         
         #for item in range(len( BC_Center_Index ) ):
 	#    BC_Center_fill[item] = BC_Center_Index[item]
@@ -576,6 +618,15 @@ class PD(NOX.Epetra.Interface.Required,
 	self.BC_Bottom_fill = BC_Bottom_fill
 	self.BC_Bottom_fill_p = BC_Bottom_fill_p
 	self.BC_Bottom_fill_s = BC_Bottom_fill_s
+        
+        self.Bel_Bottom_fill = Bel_Bottom_fill
+	self.Bel_Bottom_fill_p = Bel_Bottom_fill_p
+	self.Bel_Bottom_fill_s = Bel_Bottom_fill_s
+
+        self.BC_Top_fill = BC_Top_fill
+	self.BC_Top_fill_p = BC_Top_fill_p
+	self.BC_Top_fill_s = BC_Top_fill_s
+
 
         #self.BC_Center_fill = BC_Center_fill
 	#self.BC_Center_fill_p = BC_Center_fill_p
@@ -621,10 +672,6 @@ class PD(NOX.Epetra.Interface.Required,
         pressure_state = ma.masked_array(pressure[neighbors] - 
                 pressure[:num_owned,None], mask=neighbors.mask)
         
-        vel_bc_fixer = np.ones(pressure[:num_owned].shape)
-        for item in self.BC_Bottom_fill :
-            vel_bc_fixer[item]=0
-
         #compute the nonlocal permeability from the local constitutive tensor
 
         ### equation 27 from the NL conversion document ###
@@ -633,7 +680,6 @@ class PD(NOX.Epetra.Interface.Required,
         peri_perm_xy = permeability[0,1]
         peri_perm_yx = permeability[1,0] 
         peri_perm_yy = permeability[1,1]- 1.0 / 4.0 * trace
-        #Intermediate calculations
         permeability_dot_ref_pos_state_x = (peri_perm_xx * ref_pos_state_x/viscos[:num_owned,None]
                 + peri_perm_yx * ref_pos_state_y/viscos[:num_owned,None])
 
@@ -643,6 +689,10 @@ class PD(NOX.Epetra.Interface.Required,
         xi_dot_permeability_dot_xi = (permeability_dot_ref_pos_state_x * 
                 ref_pos_state_x + permeability_dot_ref_pos_state_y * 
                 ref_pos_state_y)
+
+        #for item in self.BC_Bottom_fill :
+        #    xi_dot_permeability_dot_xi[item]=0
+
         #Compute the peridynamic flux state
         alpha = 2.0
         scale_factor = 2.0 * (4.0 - alpha) / (np.pi * 
@@ -651,6 +701,18 @@ class PD(NOX.Epetra.Interface.Required,
         ref_mag_state_invert = (ref_mag_state ** ( 2.0 * alpha )) ** -1.0
         flux_state = (scale_factor * ref_mag_state_invert *
                 xi_dot_permeability_dot_xi * pressure_state)
+        """
+        #prepare a velocity state variable which can be used in the compute
+        #saturation function without repeating all the calcs done here
+        self.vel_state_x = ((scale_factor * ref_mag_state_invert *
+                permeability_dot_ref_pos_state_x * ref_pos_state_x *
+                pressure_state)*volumes[neighbors]).sum(axis=1)
+
+        self.vel_state_y = ((scale_factor * ref_mag_state_invert * 
+                permeability_dot_ref_pos_state_y * ref_pos_state_y 
+                * pressure_state)*volumes[neighbors]).sum(axis=1)
+        """
+
         # multiply flux_state by this correction factor which is supposed to 
         # mimic no velocity BC for top and bottom Boundaries 
         #flux_state = flux_state * vel_bc_fixer[:,None]
@@ -683,9 +745,6 @@ class PD(NOX.Epetra.Interface.Required,
         density = self.density 
         time_stepping = self.time_stepping
         
-        vel_bc_fixer = np.ones(pressure[:num_owned].shape)
-        for item in self.BC_Bottom_fill :
-            vel_bc_fixer[item]=0
 
         
         """# calling the pressure functions
@@ -738,11 +797,12 @@ class PD(NOX.Epetra.Interface.Required,
         sum_term_3_y = ((term_3_y)*volumes[neighbors]).sum(axis=1)
 
         #adding fixer mimics the situation where the 
-        #permeability is zero on the top and bottom boundary 
+        #permeability is zero on the top and bottom boundaries 
         #sum_terms_23 = vel_bc_fixer * (permeability[0,0]/(density*viscos[:num_owned])) * (sum_term_2_x * sum_term_3_x + sum_term_2_y * sum_term_3_y)
-        
         sum_terms_23 = (permeability[0,0]/(density*viscos[:num_owned])) * (sum_term_2_x * sum_term_3_x + sum_term_2_y * sum_term_3_y)
-        
+
+        #for item in self.BC_Bottom_fill :
+         #   sum_terms_23[item]=0
         
 	term_4_denom = term_2_denom
         term_4 = scale_factor_4 * viscos_sum * saturation_state * term_4_denom
@@ -788,6 +848,7 @@ class PD(NOX.Epetra.Interface.Required,
             
 	    my_p_overlap = self.ps_overlap[p_local_overlap_indices]
             my_s_overlap = self.ps_overlap[s_local_overlap_indices]
+            my_p = self.my_ps[self.p_local_indices]
             
 	    #Compute the internal flow
             self.compute_flow(my_p_overlap, self.my_flow_overlap, 
@@ -812,17 +873,23 @@ class PD(NOX.Epetra.Interface.Required,
 
             #update residual F with F_fill
             F[:] = self.F_fill[:]
-            #temp_sat = F[s_local_indices]
 
-            #Boundary conditions 
-            #if (self.iteration < 1):
-                
-                #F[self.BC_Center_s] = x[self.BC_Center_s]- 1.0
             F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
-            F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] + 0.0
+            F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 0.0
+            #F[self.BC_Top_fill_s] = x[self.BC_Top_fill_s] -1.0
+            #F[self.BC_Bottom_fill_s] = x[self.BC_Bottom_fill_s] -0.0
+            #F[self.Bel_Bottom_fill_s] = x[self.Bel_Bottom_fill_s] - 1.0
+
+
 
             F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 1000.0
             F[self.BC_Right_fill_p] = x[self.BC_Right_fill_p] - 1.0
+            #F[self.BC_Top_fill_p] = self.my_flow 
+            #F[self.BC_Bottom_fill_p] = x[self.BC_Bottom_fill_p] - my_p[self.Bel_Bottom_fill_p]
+
+            #F[self.Bel_Bottom_fill_p] = x[self.Bel_Bottom_fill_p] - 10.0
+
+
             self.i = self.i + 1
             
         except Exception, e:
@@ -981,13 +1048,19 @@ if __name__ == "__main__":
             x_plot = problem.comm.GatherAll( x )
             y_plot = problem.comm.GatherAll( y )
 
+
             sol_p_plot = problem.comm.GatherAll( sol_pressure )
+            sol_p_reshape = np.reshape(sol_p_plot,(1600))
+            print sol_p_reshape[problem.Bel_Bottom_fill_p]
+            print problem.Bel_Bottom_fill_p
+            print sol_p_reshape[problem.BC_Bottom_fill_p]
+            print problem.BC_Bottom_fill_p
             sol_s_plot = problem.comm.GatherAll( sol_saturation )
 
             x_plot = comm.GatherAll(x).flatten()
             y_plot = comm.GatherAll(y).flatten()
             if problem.rank==0 : 
-                if (i==10 or i==20 or i==50 or i==100 or i ==500):               
+                if (i==1 or i==20 or i==50 or i==100 or i ==500):               
                     plt.scatter( x_plot,y_plot, marker = 's', c = sol_p_plot, s = 50)
                     plt.colorbar()
                     plt.title('Pressure')
