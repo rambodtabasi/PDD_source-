@@ -483,11 +483,13 @@ class PD(NOX.Epetra.Interface.Required,
         
         BC_Bottom_Poly = [(-hgs,-hgs),(l+hgs,-hgs),(l+hgs,2.0*gs+hgs),
                 (-hgs,2.0*gs+hgs),(-hgs,-hgs)]
+        
+        Abo_Bottom_Poly = [(-hgs,(2*gs+hgs)),(l+hgs,(2*gs+hgs)), (l+hgs,(3*gs+hgs)),(-hgs,(3*gs+hgs)),(-hgs,(2*gs+hgs))] 
 
         BC_Top_Poly = [(-hgs,l-(2.0*gs+hgs)),(l+hgs,l-(2.0*gs+hgs)),
                 (l+hgs,l+hgs),(-hgs,l+hgs),(-hgs,l-(2.0*gs+hgs))]
 
-        Bel_Bottom_Poly = [(-hgs,l-(3.0*gs+hgs)),(l+hgs,l-(3.0*gs+hgs)),
+        Bel_Top_Poly = [(-hgs,l-(3.0*gs+hgs)),(l+hgs,l-(3.0*gs+hgs)),
                 (l+hgs,l-(2.0*gs+hgs)),(-hgs,l-(2.0*gs+hgs)),(-hgs,l-(3.0*gs+hgs))]
                 
         
@@ -521,10 +523,15 @@ class PD(NOX.Epetra.Interface.Required,
 	node_indices = np.arange(num_elements, dtype=np.int)
 	BC_Bottom_Edge = node_indices[bool_arr]
         
-        polygon = path.Path( Bel_Bottom_Poly, codes=None)
+        polygon = path.Path( Abo_Bottom_Poly, codes=None)
 	bool_arr = polygon.contains_points( balanced_nodes, radius =1.0e-10)
 	node_indices = np.arange(num_elements, dtype=np.int)
-	Bel_Bottom_Edge = node_indices[bool_arr]
+	Abo_Bottom_Edge = node_indices[bool_arr]
+
+        polygon = path.Path( Bel_Top_Poly, codes=None)
+	bool_arr = polygon.contains_points( balanced_nodes, radius =1.0e-10)
+	node_indices = np.arange(num_elements, dtype=np.int)
+	Bel_Top_Edge = node_indices[bool_arr]
 
         polygon = path.Path( BC_Top_Poly, codes=None)
 	bool_arr = polygon.contains_points( balanced_nodes, radius =1.0e-10)
@@ -540,7 +547,8 @@ class PD(NOX.Epetra.Interface.Required,
 	BC_Left_Index = np.sort( BC_Left_Edge )
 	BC_Right_Index = np.sort( BC_Right_Edge )
 	BC_Bottom_Index = np.sort( BC_Bottom_Edge )
-	Bel_Bottom_Index = np.sort( Bel_Bottom_Edge )
+        Abo_Bottom_Index = np.sort(Abo_Bottom_Edge)
+	Bel_Top_Index = np.sort( Bel_Top_Edge )
         BC_Top_Index = np.sort( BC_Top_Edge)
 
 	#BC_Center_Index = np.sort( BC_Center_Edge)
@@ -557,9 +565,13 @@ class PD(NOX.Epetra.Interface.Required,
 	BC_Bottom_fill_p = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
 	BC_Bottom_fill_s = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
         
-        Bel_Bottom_fill = np.zeros(len(Bel_Bottom_Edge), dtype=np.int32)
-	Bel_Bottom_fill_p = np.zeros(len(Bel_Bottom_Edge), dtype=np.int32)
-	Bel_Bottom_fill_s = np.zeros(len(Bel_Bottom_Edge), dtype=np.int32)
+        Abo_Bottom_fill = np.zeros(len(Abo_Bottom_Edge), dtype=np.int32)
+	Abo_Bottom_fill_p = np.zeros(len(Abo_Bottom_Edge), dtype=np.int32)
+	Abo_Bottom_fill_s = np.zeros(len(Abo_Bottom_Edge), dtype=np.int32)
+        
+        Bel_Top_fill = np.zeros(len(Bel_Top_Edge), dtype=np.int32)
+	Bel_Top_fill_p = np.zeros(len(Bel_Top_Edge), dtype=np.int32)
+	Bel_Top_fill_s = np.zeros(len(Bel_Top_Edge), dtype=np.int32)
         
         BC_Top_fill = np.zeros(len(BC_Top_Edge), dtype=np.int32)
 	BC_Top_fill_p = np.zeros(len(BC_Top_Edge), dtype=np.int32)
@@ -586,12 +598,17 @@ class PD(NOX.Epetra.Interface.Required,
 	    BC_Bottom_fill[item] = BC_Bottom_Index[item]
 	    BC_Bottom_fill_p[item] = 2*BC_Bottom_Index[item]
 	    BC_Bottom_fill_s[item] = 2*BC_Bottom_Index[item]+1
+        
+        for item in range(len( Abo_Bottom_Index ) ):
+	    Abo_Bottom_fill[item] = Abo_Bottom_Index[item]
+	    Abo_Bottom_fill_p[item] = 2*Abo_Bottom_Index[item]
+	    Abo_Bottom_fill_s[item] = 2*Abo_Bottom_Index[item]+1
 
         
-        for item in range(len( Bel_Bottom_Index ) ):
-	    Bel_Bottom_fill[item] = Bel_Bottom_Index[item]
-	    Bel_Bottom_fill_p[item] = 2*Bel_Bottom_Index[item]
-	    Bel_Bottom_fill_s[item] = 2*Bel_Bottom_Index[item]+1
+        for item in range(len( Bel_Top_Index ) ):
+	    Bel_Top_fill[item] = Bel_Top_Index[item]
+	    Bel_Top_fill_p[item] = 2*Bel_Top_Index[item]
+	    Bel_Top_fill_s[item] = 2*Bel_Top_Index[item]+1
 
 
 
@@ -619,9 +636,13 @@ class PD(NOX.Epetra.Interface.Required,
 	self.BC_Bottom_fill_p = BC_Bottom_fill_p
 	self.BC_Bottom_fill_s = BC_Bottom_fill_s
         
-        self.Bel_Bottom_fill = Bel_Bottom_fill
-	self.Bel_Bottom_fill_p = Bel_Bottom_fill_p
-	self.Bel_Bottom_fill_s = Bel_Bottom_fill_s
+        self.Abo_Bottom_fill = Abo_Bottom_fill
+	self.Abo_Bottom_fill_p = Abo_Bottom_fill_p
+	self.Abo_Bottom_fill_s = Abo_Bottom_fill_s
+
+        self.Bel_Top_fill = Bel_Top_fill
+	self.Bel_Top_fill_p = Bel_Top_fill_p
+	self.Bel_Top_fill_s = Bel_Top_fill_s
 
         self.BC_Top_fill = BC_Top_fill
 	self.BC_Top_fill_p = BC_Top_fill_p
@@ -801,8 +822,10 @@ class PD(NOX.Epetra.Interface.Required,
         #sum_terms_23 = vel_bc_fixer * (permeability[0,0]/(density*viscos[:num_owned])) * (sum_term_2_x * sum_term_3_x + sum_term_2_y * sum_term_3_y)
         sum_terms_23 = (permeability[0,0]/(density*viscos[:num_owned])) * (sum_term_2_x * sum_term_3_x + sum_term_2_y * sum_term_3_y)
 
-        #for item in self.BC_Bottom_fill :
-         #   sum_terms_23[item]=0
+        for item in self.BC_Top_fill :
+            sum_terms_23[item]=0
+        for item in self.BC_Bottom_fill:
+            sum_terms_23[item]=0
         
 	term_4_denom = term_2_denom
         term_4 = scale_factor_4 * viscos_sum * saturation_state * term_4_denom
@@ -873,21 +896,29 @@ class PD(NOX.Epetra.Interface.Required,
 
             #update residual F with F_fill
             F[:] = self.F_fill[:]
+            
+            my_p_modified =my_p
+            for i in range(len(self.Bel_Top_fill)):
+                index = self.Bel_Top_fill[i]
+                my_p_modified[index+1:index+4]=my_p_modified[index]
+            
+            for i in range(len(self.Abo_Bottom_fill)):
+                index = self.Abo_Bottom_fill[i]
+                my_p_modified[index-3:index]=my_p_modified[index]
+            
+
 
             F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
             F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 0.0
-            #F[self.BC_Top_fill_s] = x[self.BC_Top_fill_s] -1.0
-            #F[self.BC_Bottom_fill_s] = x[self.BC_Bottom_fill_s] -0.0
-            #F[self.Bel_Bottom_fill_s] = x[self.Bel_Bottom_fill_s] - 1.0
-
-
-
+            
             F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 1000.0
             F[self.BC_Right_fill_p] = x[self.BC_Right_fill_p] - 1.0
-            #F[self.BC_Top_fill_p] = self.my_flow 
-            #F[self.BC_Bottom_fill_p] = x[self.BC_Bottom_fill_p] - my_p[self.Bel_Bottom_fill_p]
+            F[self.BC_Top_fill_p] = x[self.BC_Top_fill_p] - my_p_modified[
+                    self.BC_Top_fill]
+            F[self.BC_Bottom_fill_p] = x[self.BC_Bottom_fill_p] - my_p_modified[
+                    self.BC_Bottom_fill]
 
-            #F[self.Bel_Bottom_fill_p] = x[self.Bel_Bottom_fill_p] - 10.0
+            #F[self.Bel_Top_fill_p] = x[self.Bel_Top_fill_p] - 10.0
 
 
             self.i = self.i + 1
@@ -1042,7 +1073,20 @@ if __name__ == "__main__":
  
             sol_pressure = solution[p_local_indices]
             sol_saturation = solution[s_local_indices]
-            center_sat = np.amax(sol_saturation)
+            #center_sat = np.amax(sol_saturation)
+            
+            # modifying P matrix to have the Bottom boundary values which are 
+            # all equal to values at Bel_Top band
+            """my_p_modified =sol_pressure
+            for c in range(len(problem.Abo_Bottom_fill)):
+                index = problem.Abo_Bottom_fill[c]
+                print index
+                my_p_modified[index-3:index]=my_p_modified[index]
+                ttt.sleep(1)
+            print my_p_modified[problem.BC_Bottom_fill]"""
+            
+            
+            
             x = problem.get_x() 
             y = problem.get_y() 
             x_plot = problem.comm.GatherAll( x )
@@ -1050,11 +1094,6 @@ if __name__ == "__main__":
 
 
             sol_p_plot = problem.comm.GatherAll( sol_pressure )
-            sol_p_reshape = np.reshape(sol_p_plot,(1600))
-            print sol_p_reshape[problem.Bel_Bottom_fill_p]
-            print problem.Bel_Bottom_fill_p
-            print sol_p_reshape[problem.BC_Bottom_fill_p]
-            print problem.BC_Bottom_fill_p
             sol_s_plot = problem.comm.GatherAll( sol_saturation )
 
             x_plot = comm.GatherAll(x).flatten()
