@@ -987,7 +987,7 @@ if __name__ == "__main__":
             x_plot = comm.GatherAll(x).flatten()
             y_plot = comm.GatherAll(y).flatten()
             if problem.rank==0 : 
-                if (i==10 or i==20 or i==50 or i==100 or i ==500):               
+                if (i==100 or i ==500):               
                     plt.scatter( x_plot,y_plot, marker = 's', c = sol_p_plot, s = 50)
                     plt.colorbar()
                     plt.title('Pressure')
