@@ -997,7 +997,7 @@ if __name__ == "__main__":
     def main():
 	#Create the PD object
      
-        nodes=40
+        nodes=100
 	problem = PD(nodes,10)
         comm = problem.comm 
         num_owned = problem.neighborhood_graph.NumMyRows()
@@ -1035,7 +1035,7 @@ if __name__ == "__main__":
 		problem.comm, viz_path=VIZ_PATH)
         
         problem.iteration=0
-        end_range = 10001
+        end_range = 1005
         for problem.iteration in range(end_range):
             i = problem.iteration
             print i
@@ -1099,7 +1099,7 @@ if __name__ == "__main__":
             x_plot = comm.GatherAll(x).flatten()
             y_plot = comm.GatherAll(y).flatten()
             if problem.rank==0 : 
-                if (i==100 or i ==500):               
+                if (i==100 or i ==500 or i==1000):               
                     plt.scatter( x_plot,y_plot, marker = 's', c = sol_p_plot, s = 50)
                     plt.colorbar()
                     plt.title('Pressure')
