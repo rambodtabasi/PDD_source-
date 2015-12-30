@@ -54,7 +54,7 @@ class PD(NOX.Epetra.Interface.Required,
         self.iteration = 0
         self.num_nodes = num_nodes
         self.length = length
-        self.time_stepping = 0.1
+        self.time_stepping = 0.01
         self.grid_spacing = float(length) / (num_nodes - 1)
         self.bc_values = bc_values
         self.symm_bcs = symm_bcs
@@ -476,175 +476,103 @@ class PD(NOX.Epetra.Interface.Required,
         gs = self.grid_spacing
 	l = self.length
 	num_elements = balanced_map.NumMyElements()
-
-	# Define polygon bounding select nodes
-	BC_Left_Poly = [ (-hgs,-hgs), (2.0*gs+hgs,-hgs), (2.0*gs+hgs,l+hgs), 
-		(-hgs,l+hgs), (-hgs,-hgs)]
-	
-	BC_Right_Poly = [ (l-(2.0*gs+hgs),-hgs), (l+hgs,-hgs), (l+hgs,l+hgs), 
-		(l-(2.0*gs+hgs),l+hgs), (l-(2.0*gs+hgs),-hgs)]
         
-        BC_Bottom_Poly = [(-hgs,-hgs),(l+hgs,-hgs),(l+hgs,2.0*gs+hgs),
-                (-hgs,2.0*gs+hgs),(-hgs,-hgs)]
-        
-        Abo_Bottom_Poly = [(-hgs,(2*gs+hgs)),(l+hgs,(2*gs+hgs)), (l+hgs,(5*gs+hgs)),(-hgs,(5*gs+hgs)),(-hgs,(2*gs+hgs))] 
-
-        BC_Top_Poly = [(-hgs,l-(2.0*gs+hgs)),(l+hgs,l-(2.0*gs+hgs)),
-                (l+hgs,l+hgs),(-hgs,l+hgs),(-hgs,l-(2.0*gs+hgs))]
-
-        Bel_Top_Poly = [((-hgs),l-(5.0*gs+hgs)),(l+hgs,l-(5.0*gs+hgs)),
-                ((l+hgs),l-(2.0*gs+hgs)),(-hgs,l-(2.0*gs+hgs)),(-hgs,l-(5.0*gs+hgs))]
-                
-
-	# Create array of indices contining those nodes
-	polygon = path.Path( BC_Left_Poly, codes=None)
-	bool_arr = polygon.contains_points( balanced_nodes,radius =1.0e-10)
-	node_indices = np.arange(num_elements, dtype=np.int)
-	BC_Left_Edge = node_indices[bool_arr]
-	
-	polygon = path.Path( BC_Right_Poly, codes=None)
-	bool_arr = polygon.contains_points( balanced_nodes,radius =1.0e-10)
-	node_indices = np.arange(num_elements, dtype=np.int)
-	BC_Right_Edge = node_indices[bool_arr]
-	
-        polygon = path.Path( BC_Bottom_Poly, codes=None)
-	bool_arr = polygon.contains_points( balanced_nodes,radius =1.0e-10)
-	node_indices = np.arange(num_elements, dtype=np.int)
-	BC_Bottom_Edge = node_indices[bool_arr]
-        
-        polygon = path.Path( Abo_Bottom_Poly, codes=None)
-	bool_arr = polygon.contains_points( balanced_nodes,radius =1.0e-10)
-	node_indices = np.arange(num_elements, dtype=np.int)
-	Abo_Bottom_Edge = node_indices[bool_arr]
-
-        polygon = path.Path( Bel_Top_Poly, codes=None)
-	bool_arr = polygon.contains_points( balanced_nodes,radius =1.0e-10)
-	node_indices = np.arange(num_elements, dtype=np.int)
-	Bel_Top_Edge = node_indices[bool_arr]
-
-        polygon = path.Path( BC_Top_Poly, codes=None)
-	bool_arr = polygon.contains_points( balanced_nodes,radius =1.0e-10)
-	node_indices = np.arange(num_elements, dtype=np.int)
-	BC_Top_Edge = node_indices[bool_arr]
-
-
-        #polygon = path.path( BC_Center_Poly, codes=None)
-        #bool_arr = polygon.contains_points( balanced_nodes, radius =1.0e-10)
-	#node_indices = np.arange(num_elements, dtype=np.int)
-	#BC_Center_Edge = node_indices[bool_arr]
-
-	BC_Left_Index = np.sort( BC_Left_Edge )
-	BC_Right_Index = np.sort( BC_Right_Edge )
-        ttt.sleep(2)
-	BC_Bottom_Index = np.sort(BC_Bottom_Edge)
+        """ Above Bottom BC with a horizon thickness"""
+        y_min_abo = np.where(self.my_y >= (5.0 *gs+hgs))
+        y_max_abo = np.where(self.my_y <= (2.0*gs+ hgs))
+	Abo_Bottom_Edge = np.intersect1d(y_min_abo , y_max_abo)
         Abo_Bottom_Index = np.sort(Abo_Bottom_Edge)
-	Bel_Top_Index = np.sort( Bel_Top_Edge )
-        BC_Top_Index = np.sort( BC_Top_Edge)
-
-	#BC_Center_Index = np.sort( BC_Center_Edge)
-
-	BC_Left_fill = np.zeros(len(BC_Left_Edge), dtype=np.int32)
-	BC_Left_fill_p = np.zeros(len(BC_Left_Edge), dtype=np.int32)
-	BC_Left_fill_s = np.zeros(len(BC_Left_Edge), dtype=np.int32)
-
-	BC_Right_fill = np.zeros(len(BC_Right_Edge), dtype=np.int32)
-	BC_Right_fill_p = np.zeros(len(BC_Right_Edge), dtype=np.int32)
-	BC_Right_fill_s = np.zeros(len(BC_Right_Edge), dtype=np.int32)
-
-	BC_Bottom_fill = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
-	BC_Bottom_fill_p = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
-	BC_Bottom_fill_s = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
-        
         Abo_Bottom_fill = np.zeros(len(Abo_Bottom_Edge), dtype=np.int32)
 	Abo_Bottom_fill_p = np.zeros(len(Abo_Bottom_Edge), dtype=np.int32)
 	Abo_Bottom_fill_s = np.zeros(len(Abo_Bottom_Edge), dtype=np.int32)
-        
-        Bel_Top_fill = np.zeros(len(Bel_Top_Edge), dtype=np.int32)
-	Bel_Top_fill_p = np.zeros(len(Bel_Top_Edge), dtype=np.int32)
-	Bel_Top_fill_s = np.zeros(len(Bel_Top_Edge), dtype=np.int32)
-        
-        BC_Top_fill = np.zeros(len(BC_Top_Edge), dtype=np.int32)
-	BC_Top_fill_p = np.zeros(len(BC_Top_Edge), dtype=np.int32)
-	BC_Top_fill_s = np.zeros(len(BC_Top_Edge), dtype=np.int32)
-
-        
-        #BC_Center_fill = np.zeros(len(BC_Center_Edge), dtype=np.int32)
-	#BC_Center_fill_p = np.zeros(len(BC_Center_Edge), dtype=np.int32)
-	#BC_Center_fill_s = np.zeros(len(BC_Center_Edge), dtype=np.int32)
-
-
-	# Fill arrays with appropriate values and assign
-	for item in range(len(BC_Left_Index)):
-	    BC_Left_fill[item] = BC_Left_Index[item]
-	    BC_Left_fill_p[item] = 2*BC_Left_Index[item]
-	    BC_Left_fill_s[item] = 2*BC_Left_Index[item]+1
-
-	for item in range(len( BC_Right_Index ) ):
-	    BC_Right_fill[item] = BC_Right_Index[item]
-	    BC_Right_fill_p[item] = 2*BC_Right_Index[item]
-	    BC_Right_fill_s[item] = 2*BC_Right_Index[item]+1
-	
-        for item in range(len( BC_Bottom_Index ) ):
-	    BC_Bottom_fill[item] = BC_Bottom_Index[item]
-	    BC_Bottom_fill_p[item] = 2*BC_Bottom_Index[item]
-	    BC_Bottom_fill_s[item] = 2*BC_Bottom_Index[item]+1
-        
         for item in range(len( Abo_Bottom_Index ) ):
 	    Abo_Bottom_fill[item] = Abo_Bottom_Index[item]
 	    Abo_Bottom_fill_p[item] = 2*Abo_Bottom_Index[item]
 	    Abo_Bottom_fill_s[item] = 2*Abo_Bottom_Index[item]+1
-
-        
+        self.Abo_Bottom_fill = Abo_Bottom_fill
+	self.Abo_Bottom_fill_p = Abo_Bottom_fill_p
+	self.Abo_Bottom_fill_s = Abo_Bottom_fill_s
+        """ Below top BC with a horizon thickness"""
+        y_min_bel = np.where(self.my_y >= (l-(5.0 *gs+hgs)))
+        y_max_bel = np.where(self.my_y <= (l-(2.0*gs+ hgs)))
+	Bel_Top_Edge = np.intersect1d(y_min_bel,y_max_bel)
+	Bel_Top_Index = np.sort( Bel_Top_Edge )
+        Bel_Top_fill = np.zeros(len(Bel_Top_Edge), dtype=np.int32)
+	Bel_Top_fill_p = np.zeros(len(Bel_Top_Edge), dtype=np.int32)
+	Bel_Top_fill_s = np.zeros(len(Bel_Top_Edge), dtype=np.int32)
         for item in range(len( Bel_Top_Index ) ):
 	    Bel_Top_fill[item] = Bel_Top_Index[item]
 	    Bel_Top_fill_p[item] = 2*Bel_Top_Index[item]
 	    Bel_Top_fill_s[item] = 2*Bel_Top_Index[item]+1
-
-
-
-        for item in range(len( BC_Top_Index ) ):
-	    BC_Top_fill[item] = BC_Top_Index[item]
-	    BC_Top_fill_p[item] = 2*BC_Top_Index[item]
-	    BC_Top_fill_s[item] = 2*BC_Top_Index[item]+1
-
-        
-        #for item in range(len( BC_Center_Index ) ):
-	#    BC_Center_fill[item] = BC_Center_Index[item]
-	#    BC_Center_fill_p[item] = 2*BC_Center_Index[item]
-	#    BC_Center_fill_s[item] = 2*BC_Center_Index[item]+1
-
-
-	self.BC_Left_fill = BC_Left_fill
-	self.BC_Left_fill_p = BC_Left_fill_p
-	self.BC_Left_fill_s = BC_Left_fill_s
-	
+        self.Bel_Top_fill = Bel_Top_fill
+	self.Bel_Top_fill_p = Bel_Top_fill_p
+	self.Bel_Top_fill_s = Bel_Top_fill_s
+        """ Right BC with one horizon thickness"""
+        x_min_right = np.where(self.my_x >= l-(2.0*gs+hgs))
+        x_max_right = np.where(self.my_y <= l+hgs)
+	BC_Right_Edge = np.intersect1d(x_min_right,x_max_right)
+	BC_Right_Index = np.sort( BC_Right_Edge )
+	BC_Right_fill = np.zeros(len(BC_Right_Edge), dtype=np.int32)
+	BC_Right_fill_p = np.zeros(len(BC_Right_Edge), dtype=np.int32)
+	BC_Right_fill_s = np.zeros(len(BC_Right_Edge), dtype=np.int32)
+	for item in range(len( BC_Right_Index ) ):
+	    BC_Right_fill[item] = BC_Right_Index[item]
+	    BC_Right_fill_p[item] = 2*BC_Right_Index[item]
+	    BC_Right_fill_s[item] = 2*BC_Right_Index[item]+1
 	self.BC_Right_fill = BC_Right_fill
 	self.BC_Right_fill_p = BC_Right_fill_p
 	self.BC_Right_fill_s = BC_Right_fill_s
 
-	self.BC_Bottom_fill = BC_Bottom_fill
+        """ Left BC with one horizon thickness"""
+        x_min_left= np.where(self.my_x >= -hgs)[0]
+        x_max_left= np.where(self.my_x <= (2.0*gs+hgs))
+	BC_Left_Edge = np.intersect1d(x_min_left,x_max_left)
+        BC_Left_Index = np.sort( BC_Left_Edge )
+	BC_Left_fill = np.zeros(len(BC_Left_Edge), dtype=np.int32)
+	BC_Left_fill_p = np.zeros(len(BC_Left_Edge), dtype=np.int32)
+	BC_Left_fill_s = np.zeros(len(BC_Left_Edge), dtype=np.int32)
+	for item in range(len(BC_Left_Index)):
+	    BC_Left_fill[item] = BC_Left_Index[item]
+	    BC_Left_fill_p[item] = 2*BC_Left_Index[item]
+	    BC_Left_fill_s[item] = 2*BC_Left_Index[item]+1
+	self.BC_Left_fill = BC_Left_fill
+	self.BC_Left_fill_p = BC_Left_fill_p
+	self.BC_Left_fill_s = BC_Left_fill_s
+
+        """ Bottom BC with one horizon thickness"""
+        ymin_bottom = np.where(self.my_y >= (-hgs))[0]
+        ymax_bottom = np.where(self.my_y <= (2.0*gs+hgs))[0]
+        BC_Bottom_Edge = np.intersect1d(ymin_bottom,ymax_bottom)
+        BC_Bottom_fill = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
+	BC_Bottom_fill_p = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
+	BC_Bottom_fill_s = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
+        for item in range(len( BC_Bottom_Edge)):
+	    BC_Bottom_fill[item] = BC_Bottom_Edge[item]
+	    BC_Bottom_fill_p[item] = 2*BC_Bottom_Edge[item]
+	    BC_Bottom_fill_s[item] = 2*BC_Bottom_Edge[item]+1
+        self.BC_Bottom_fill = BC_Bottom_fill
 	self.BC_Bottom_fill_p = BC_Bottom_fill_p
 	self.BC_Bottom_fill_s = BC_Bottom_fill_s
-        
-        self.Abo_Bottom_fill = Abo_Bottom_fill
-	self.Abo_Bottom_fill_p = Abo_Bottom_fill_p
-	self.Abo_Bottom_fill_s = Abo_Bottom_fill_s
 
-        self.Bel_Top_fill = Bel_Top_fill
-	self.Bel_Top_fill_p = Bel_Top_fill_p
-	self.Bel_Top_fill_s = Bel_Top_fill_s
-
+        """ TOP BC with one horizon thickness"""
+        ymin_top = np.where(self.my_y >= l-(2.0*gs+hgs))[0]
+        ymax_top= np.where(self.my_y <= l+hgs)[0]
+        BC_Top_Edge = np.intersect1d(ymin_top,ymax_top)
+        BC_Top_fill = np.zeros(len(BC_Top_Edge), dtype=np.int32)
+	BC_Top_fill_p = np.zeros(len(BC_Top_Edge), dtype=np.int32)
+        BC_Top_fill_s = np.zeros(len(BC_Top_Edge), dtype=np.int32)
+        for item in range(len( BC_Top_Edge ) ):
+	    BC_Top_fill[item] = BC_Top_Edge[item]
+	    BC_Top_fill_p[item] = 2*BC_Top_Edge[item]
+	    BC_Top_fill_s[item] = 2*BC_Top_Edge[item]+1
         self.BC_Top_fill = BC_Top_fill
 	self.BC_Top_fill_p = BC_Top_fill_p
 	self.BC_Top_fill_s = BC_Top_fill_s
 
-
-        #self.BC_Center_fill = BC_Center_fill
-	#self.BC_Center_fill_p = BC_Center_fill_p
-	#self.BC_Center_fill_s = BC_Center_fill_s
+        """ center  BC with one horizon radius"""
         center = 10.0 * (((nodes_numb /2.0)-1.0)/(nodes_numb-1.0))
-        min_center = center - horizon 
-        max_center =center + horizon 
+        min_center = center - horizon
+        max_center =center + horizon
         xmin_center=np.where(min_center< self.my_x)[0]
         xmax_center=np.where(max_center > self.my_x)[0]
         ymin_center=np.where(min_center< self.my_y)[0]
@@ -662,7 +590,43 @@ class PD(NOX.Epetra.Interface.Required,
 
         self.center_fill_s = center_neighb_fill_s
         self.center_fill_p = center_neighb_fill_p
-        return 
+
+
+        return
+
+    def mirror_BC_Top_Bottom(self, x):
+        
+        nodes = self.nodes_numb
+        for i in range(len(self.Bel_Top_fill_p)):
+            index = self.Bel_Top_fill_p[i]
+            if ((index-72) % (nodes*2.0) == 0):
+                x[index+2]=x[index]
+                x[index+4]=x[index-2]
+                x[index+6]=x[index-4]
+       
+        for i in range(len(self.Abo_Bottom_fill_p)):
+            index = self.Abo_Bottom_fill_p[i]
+            if ((index-6) % (nodes*2.0) == 0):
+                x[index-2]=x[index]
+                x[index-4]=x[index+2]
+                x[index-6]=x[index+4]
+
+        for i in range(len(self.Bel_Top_fill_s)):
+            index = self.Bel_Top_fill_s[i]
+            if ((index-73) % (2.0*nodes) == 0):
+                x[index+2]=x[index]
+                x[index+4]=x[index-2]
+                x[index+6]=x[index-4]
+       
+        for i in range(len(self.Abo_Bottom_fill_s)):
+            index = self.Abo_Bottom_fill_s[i]
+            if ((index-7) % (2.0*nodes) == 0):
+                x[index-2]=x[index]
+                x[index-4]=x[index+2]
+                x[index-6]=x[index+4]
+
+        return x 
+
 
         
     def compute_flow(self, pressure, flow, saturation, flag):
@@ -823,7 +787,6 @@ class PD(NOX.Epetra.Interface.Required,
         try:
             overlap_importer = self.get_overlap_importer()
 	    ps_overlap_importer = self.get_xy_overlap_importer()
-            nodes = self.nodes_numb
 
 	    neighborhood_graph = self.get_balanced_neighborhood_graph()
 	    num_owned = neighborhood_graph.NumMyRows()
@@ -869,46 +832,20 @@ class PD(NOX.Epetra.Interface.Required,
             #update residual F with F_fill
             F[:] = self.F_fill[:]
 
-            #if self.iteration == 0:
-            #F[self.BC_Center_fill_s]=x[self.BC_Center_fill_s]-1.0
             #F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
-            #F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 0.0
+            #F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 1.0
+            #F[self.BC_Top_fill_s]=x[self.BC_Top_fill_s]-1.0
+            #F[self.BC_Bottom_fill_s]=x[self.BC_Bottom_fill_s]-1.0
             if self.iteration == 0:
                 F[self.center_fill_s] = x[self.center_fill_s]-1.0
             
             
             F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 1000.0
             F[self.BC_Right_fill_p] = x[self.BC_Right_fill_p] - 0.0
-            
             #F[self.BC_Top_fill_p] = x[self.BC_Top_fill_p] - 1000.0
             #F[self.BC_Bottom_fill_p] = x[self.BC_Bottom_fill_p] - 1.0
-            for i in range(len(self.Bel_Top_fill_p)):
-                index = self.Bel_Top_fill_p[i]
-                if ((index-72) % (nodes*2.0) == 0):
-                    x[index+2]=x[index]
-                    x[index+4]=x[index-2]
-                    x[index+6]=x[index-4]
-           
-            for i in range(len(self.Abo_Bottom_fill_p)):
-                index = self.Abo_Bottom_fill_p[i]
-                if ((index-6) % (nodes*2.0) == 0):
-                    x[index-2]=x[index]
-                    x[index-4]=x[index+2]
-                    x[index-6]=x[index+4]
 
-            for i in range(len(self.Bel_Top_fill_s)):
-                index = self.Bel_Top_fill_s[i]
-                if ((index-73) % (2.0*nodes) == 0):
-                    x[index+2]=x[index]
-                    x[index+4]=x[index-2]
-                    x[index+6]=x[index-4]
-           
-            for i in range(len(self.Abo_Bottom_fill_s)):
-                index = self.Abo_Bottom_fill_s[i]
-                if ((index-7) % (2.0*nodes) == 0):
-                    x[index-2]=x[index]
-                    x[index-4]=x[index+2]
-                    x[index-6]=x[index+4]
+            x= self.mirror_BC_Top_Bottom(x)
 
             self.i = self.i + 1
             
@@ -1018,9 +955,8 @@ if __name__ == "__main__":
 	#Establish parameters for ParaView Visualization
 	VIZ_PATH='/Applications/paraview.app/Contents/MacOS/paraview'
 	vector_variables = ['displacement']
-        #rambod
 	scalar_variables = ['pressure','saturation']
-	outfile = Ensight('output', vector_variables ,scalar_variables, 
+	outfile = Ensight('output',vector_variables, scalar_variables, 
 		problem.comm, viz_path=VIZ_PATH)
         
         problem.iteration=0
@@ -1044,8 +980,8 @@ if __name__ == "__main__":
             problem.jac_comp = False
             #Create NOX solver object, solve for pressure and saturation  
             solver = NOX.Epetra.defaultSolver(init_ps_guess, problem, 
-                    problem, jacobian,nlParams = nl_params, maxIters=10,
-                    wAbsTol=None, wRelTol=None, updateTol=None, absTol = 5.0e-5, relTol = 2.0e-4)
+                    problem, jacobian,nlParams = nl_params, maxIters=100,
+                    wAbsTol=None, wRelTol=None, updateTol=None, absTol = 5.0e-8, relTol = 2.0e-9)
             solveStatus = solver.solve()
             finalGroup = solver.getSolutionGroup()
             solution = finalGroup.getX()
@@ -1062,20 +998,6 @@ if __name__ == "__main__":
  
             sol_pressure = solution[p_local_indices]
             sol_saturation = solution[s_local_indices]
-            #center_sat = np.amax(sol_saturation)
-            
-            # modifying P matrix to have the Bottom boundary values which are 
-            # all equal to values at Bel_Top band
-            """my_p_modified = sol_pressure
-            for n in range(len(problem.Bel_Top_fill)):
-                index = problem.Bel_Top_fill[n]
-                print index
-                my_p_modified[index+1]=my_p_modified[index]
-                my_p_modified[index+2]=my_p_modified[index-1]
-                my_p_modified[index+3]=my_p_modified[index-2]
-                sol_pressure=my_p_modified
-                print sol_pressure[index-5:index+3]
-                """
             x = problem.get_x() 
             y = problem.get_y() 
             x_plot = problem.comm.GatherAll( x )
@@ -1088,7 +1010,7 @@ if __name__ == "__main__":
             x_plot = comm.GatherAll(x).flatten()
             y_plot = comm.GatherAll(y).flatten()
             if problem.rank==0 : 
-                if (i==1 or i==10 or i==30 or i==50 or i==100 or i ==500):               
+                if (i==10 or i ==100 or i==500):               
                     plt.scatter( x_plot,y_plot, marker = 's', c = sol_p_plot, s = 50)
                     plt.colorbar()
                     plt.title('Pressure')
@@ -1099,14 +1021,20 @@ if __name__ == "__main__":
                     plt.title('Saturation')
                     plt.show()
 
-	timer = 1.0
-	################ Write Date to Ensight Outfile #################
-	outfile.write_geometry_file_time_step(problem.my_x, problem.my_y)
-	outfile.write_vector_variable_time_step('displacement', 
-					       [0.0*problem.my_x,0.0*problem.my_y], timer)
-	outfile.write_scalar_variable_time_step('pressure', 
-					       solution, timer)
-	#################################################################
+            if (i==100):               
+	        timer = 1.0
+                ################ Write Date to Ensight Outfile #################
+                outfile.write_geometry_file_time_step(problem.my_x, problem.my_y)
+                outfile.write_scalar_variable_time_step('saturation', 
+                                                       sol_saturation, timer)
+                outfile.write_scalar_variable_time_step('pressure', 
+                                                       sol_pressure, timer)
+                outfile.write_vector_variable_time_step('displacement', 
+                                                       [0.0*problem.my_x,0.0*problem.my_y], timer)
+                outfile.append_time_step(timer)
+	        outfile.write_case_file(comm)
 
-	outfile.finalize()
+                ################################################################
+
+                outfile.finalize()
     main()
