@@ -836,14 +836,15 @@ class PD(NOX.Epetra.Interface.Required,
             #F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 1.0
             #F[self.BC_Top_fill_s]=x[self.BC_Top_fill_s]-1.0
             #F[self.BC_Bottom_fill_s]=x[self.BC_Bottom_fill_s]-1.0
-            if self.iteration == 0:
-                F[self.center_fill_s] = x[self.center_fill_s]-1.0
+            #if self.iteration == 0:
+            F[self.center_fill_s] = x[self.center_fill_s]-1.0
+            F[self.center_fill_p] = x[self.center_fill_p]-1000.0
             
             
-            F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 1000.0
+            F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 0.0
             F[self.BC_Right_fill_p] = x[self.BC_Right_fill_p] - 0.0
-            #F[self.BC_Top_fill_p] = x[self.BC_Top_fill_p] - 1000.0
-            #F[self.BC_Bottom_fill_p] = x[self.BC_Bottom_fill_p] - 1.0
+            F[self.BC_Top_fill_p] = x[self.BC_Top_fill_p] - 0.0
+            F[self.BC_Bottom_fill_p] = x[self.BC_Bottom_fill_p] - 0.0
 
             x= self.mirror_BC_Top_Bottom(x)
 
@@ -923,7 +924,7 @@ if __name__ == "__main__":
     def main():
 	#Create the PD object
      
-        nodes=40
+        nodes=100
 	problem = PD(nodes,10)
         comm = problem.comm 
         num_owned = problem.neighborhood_graph.NumMyRows()
@@ -960,7 +961,7 @@ if __name__ == "__main__":
 		problem.comm, viz_path=VIZ_PATH)
         
         problem.iteration=0
-        end_range = 1005
+        end_range = 10005
         for problem.iteration in range(end_range):
             i = problem.iteration
             print i
@@ -1010,7 +1011,7 @@ if __name__ == "__main__":
             x_plot = comm.GatherAll(x).flatten()
             y_plot = comm.GatherAll(y).flatten()
             if problem.rank==0 : 
-                if (i==10 or i ==100 or i==500):               
+                if (i==1 or i==10 or i==100):               
                     plt.scatter( x_plot,y_plot, marker = 's', c = sol_p_plot, s = 50)
                     plt.colorbar()
                     plt.title('Pressure')
