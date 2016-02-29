@@ -652,7 +652,6 @@ class PD(NOX.Epetra.Interface.Required,
 
         return x 
 
-        
     def compute_flow(self, pressure, flow, saturation, flag):
         """ 
             Computes the peridynamic flow due to non-local pressure 
@@ -684,7 +683,7 @@ class PD(NOX.Epetra.Interface.Required,
         viscos = np.exp(R*(ones-saturation))* (1.0/density)
         pressure_state = ma.masked_array(pressure[neighbors] - 
                 pressure[:num_owned,None], mask=neighbors.mask)
-
+        
         #compute the nonlocal permeability from the local constitutive tensor
 
         ### equation 27 from the NL conversion document ###
@@ -704,10 +703,11 @@ class PD(NOX.Epetra.Interface.Required,
                 ref_pos_state_y)
 
         #Compute the peridynamic flux state
-        scale_factor = 4.0 / (np.pi * 
-                horizon ** (2.0))
+        alpha = 2.0
+        scale_factor = 2.0 * (4.0 - alpha) / (np.pi * 
+                horizon ** (4.0 - alpha))
 
-        ref_mag_state_invert = (ref_mag_state ** (4.0)) ** -1.0
+        ref_mag_state_invert = (ref_mag_state ** ( 2.0 * alpha )) ** -1.0
         flux_state = (scale_factor * ref_mag_state_invert *
                 xi_dot_permeability_dot_xi * pressure_state)
         
@@ -737,11 +737,15 @@ class PD(NOX.Epetra.Interface.Required,
         horizon = self.horizon
         density = self.density 
         time_stepping = self.time_stepping
-        pe= 10000.0
+        pe= 1000.0
         R=self.R 
         size = saturation.shape
         ones = np.ones(size)
         viscos = np.exp(R*(ones-saturation))* (1.0/density)
+        neighb_number = neighbors.shape[1]
+        node_number = neighbors.shape[0]
+        size_upscaler = (node_number , neighb_number)
+        up_scaler = np.ones(size_upscaler)
         #define viscosity dependence on saturation
         # R is the initial ratio between the two viscosities. We are taking R as 2 here.
         #Compute saturation and pressure state
@@ -751,10 +755,12 @@ class PD(NOX.Epetra.Interface.Required,
                 pressure[:num_owned,None], mask=neighbors.mask)
         saturation_n_state = ma.masked_array(saturation_n[neighbors]
             -saturation_n[:num_owned,None], mask=neighbors.mask)
-
+        viscos_sum = ma.masked_array(viscos[neighbors] + 
+                viscos[:num_owned,None], mask=neighbors.mask)
 
         #Intermediate calculations
         ### equation 26 from the NL conversion document ###
+        """
 	gamma_denom = ( np.pi * (horizon**2.0) ) ** -1.0
         gamma  =  3.0 * gamma_denom
 
@@ -778,7 +784,44 @@ class PD(NOX.Epetra.Interface.Required,
         sum_term_4 = ((term_4)*volumes[neighbors]).sum(axis=1)
 
         term_contributions =sum_terms_23+sum_term_4 
+        """
+        scale_2_denom = ( np.pi * (horizon**2.0) ) ** -1.0
+        scale_factor_2  =  3.0 * scale_2_denom
+        scale_factor_3 = scale_factor_2
+        scale_factor_4 = scale_factor_2
+        term_2_denom = (ref_mag_state ** 2.0) ** -1.0
+        term_2_x = scale_factor_2*(pressure_state )* (ref_pos_state_x) * term_2_denom
+        term_2_y = scale_factor_2*(pressure_state )* (ref_pos_state_y) * term_2_denom
+        """
+        for i in range(num_owned):
+            for j in range(neighb_number):
+                if(pressure_state[i,j]<=0):
+                    up_scaler[i,j] = 0 
+
+        term_2_x = term_2_x * up_scaler
+        term_2_y = term_2_y * up_scaler
+        """
+        sum_term_2_x = ((term_2_x)*volumes[neighbors]).sum(axis=1)
+        sum_term_2_y = ((term_2_y)*volumes[neighbors]).sum(axis=1)
+
+
+        term_3_denom = term_2_denom
+
+        term_3_x = scale_factor_3 * ( saturation_state )* (ref_pos_state_x) * term_3_denom
+        sum_term_3_x = ((term_3_x)*volumes[neighbors]).sum(axis=1) 
         
+        term_3_y = scale_factor_3 * ( saturation_state ) * (ref_pos_state_y) * term_3_denom
+            
+        sum_term_3_y = ((term_3_y)*volumes[neighbors]).sum(axis=1)
+
+        sum_terms_23 = (1.0/(density*viscos[:num_owned])) * (sum_term_2_x * sum_term_3_x + sum_term_2_y * sum_term_3_y)
+
+	term_4_denom = term_2_denom
+        term_4 = scale_factor_4 * (1/pe) * saturation_state * term_4_denom
+        
+        sum_term_4 =  ((term_4)*volumes[neighbors]).sum(axis=1)
+
+        term_contributions =  sum_terms_23  + sum_term_4 
         residual=(((saturation[:num_owned] - saturation_n[:num_owned]) / time_stepping )- term_contributions)
         #Integrate nodal flux
         #Sum the flux contribution from j nodes to i node
@@ -843,21 +886,21 @@ class PD(NOX.Epetra.Interface.Required,
             F[:] = self.F_fill[:]
 
             #F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 0.0
-            #F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 0.0
+            F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
             #F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 0.0
             #F[self.BC_Top_fill_s] = x[self.BC_Top_fill_s] -0.0
             F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 1000.0
             F[self.BC_Right_fill_p] = x[self.BC_Right_fill_p] - 0.0
             #F[self.BC_Top_fill_p] = x[self.BC_Top_fill_p] -0.0
             #F[self.BC_Bottom_fill_p] = x[self.BC_Bottom_fill_p] - 0.0
-            F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
+            #F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
             #F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 0.0
             #F[self.Abo_Bottom_fill_s] = x[self.Abo_Bottom_fill_s] - 1.0 
             #F[self.Bel_Top_fill_s] = x[self.Bel_Top_fill_s] -1.0 
             #F[self.center_fill_s] = x[self.center_fill_s] - 1.0 
             #F[self.center_fill_p] = x[self.center_fill_p] - 1000.0 
 
-            #x = self.mirror_BC_Top_Bottom(x)
+            x = self.mirror_BC_Top_Bottom(x)
 
             self.i = self.i + 1
             
@@ -934,7 +977,7 @@ if __name__ == "__main__":
 
     def main():
 	#Create the PD object
-        nodes=40
+        nodes=200
 	problem = PD(nodes,10)
         comm = problem.comm 
         num_owned = problem.neighborhood_graph.NumMyRows()
@@ -962,13 +1005,13 @@ if __name__ == "__main__":
 	ls_params["Preconditioner Operator"] = "Use Jacobian"
 	ls_params["Preconditioner"] = "New Ifpack"
 
-	#Establish parameters for ParaView Visualization
-	VIZ_PATH='/Applications/paraview.app/Contents/MacOS/paraview'
-	vector_variables = ['displacement']
-	scalar_variables = ['pressure','saturation']
-	outfile = Ensight('output',vector_variables, scalar_variables, 
-		problem.comm, viz_path=VIZ_PATH)
         
+        #Establish parameters for ParaView Visualization
+        VIZ_PATH='/Applications/paraview.app/Contents/MacOS/paraview'
+        vector_variables = ['displacement']
+        scalar_variables = ['pressure','saturation']
+        outfile = Ensight('output',vector_variables, scalar_variables, 
+        problem.comm, viz_path=VIZ_PATH)
         problem.iteration=0
         end_range = 10005
         for problem.iteration in range(end_range):
@@ -990,8 +1033,8 @@ if __name__ == "__main__":
             problem.jac_comp = False
             #Create NOX solver object, solve for pressure and saturation  
             solver = NOX.Epetra.defaultSolver(init_ps_guess, problem, 
-                    problem, jacobian,nlParams = nl_params, maxIters=50,
-                    wAbsTol=None, wRelTol=None, updateTol=None, absTol = 5.0e-3, relTol = 2.0e-9)
+                    problem, jacobian,nlParams = nl_params, maxIters=10,
+                    wAbsTol=None, wRelTol=None, updateTol=None, absTol = 5.0e-5, relTol = 2.0e-9)
             solveStatus = solver.solve()
             finalGroup = solver.getSolutionGroup()
             solution = finalGroup.getX()
@@ -1020,19 +1063,20 @@ if __name__ == "__main__":
             y_plot = comm.GatherAll(y).flatten()
 
             if problem.rank==0 : 
-                if (i==0 or i==10 or i==20 or i==30 or i==40 or i==50 or i==100 or i==300 or i==1000 or i==2000 or i==3000 or i==6000 or i==10000):
-                    plt.scatter( x_plot,y_plot, marker = 's', c = sol_p_plot, s = 50)
+                if (i==30 or i==50 or i==100 or i==10000):
+                    plt.scatter( x_plot,y_plot, marker = 's', linewidth='0', c = sol_p_plot, s = 50)
                     plt.colorbar()
                     plt.title('Pressure')
                     plt.show()
                     #plt.scatter( x,y, marker = 's', c = sol_saturation, s = 50 )
-                    plt.scatter( x_plot,y_plot, marker = 's', c = sol_s_plot, s = 50 )
+                    plt.scatter( x_plot,y_plot, marker = 's', linewidth='0', c = sol_s_plot, s = 50 )
                     plt.colorbar()
                     plt.title('Saturation')
                     plt.show()
-
-            if (i==100):               
-	        timer = 1.0
+            if (i==30):
+                sol_pressure = solution[p_local_indices]
+                sol_saturation = solution[s_local_indices]
+                timer = 2.0 
                 ################ Write Date to Ensight Outfile #################
                 outfile.write_geometry_file_time_step(problem.my_x, problem.my_y)
                 outfile.write_scalar_variable_time_step('saturation', 
@@ -1042,7 +1086,7 @@ if __name__ == "__main__":
                 outfile.write_vector_variable_time_step('displacement', 
                                                        [0.0*problem.my_x,0.0*problem.my_y], timer)
                 outfile.append_time_step(timer)
-	        outfile.write_case_file(comm)
+                outfile.write_case_file(comm)
 
                 ################################################################
 
