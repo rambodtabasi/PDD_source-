@@ -77,7 +77,7 @@ class PD(NOX.Epetra.Interface.Required,
 	self.compressibility = 1.0
         self.density = 1000.0
         self.steps = 3
-        self.R = 0.3 #log 2 when 2 is the ration between viscosities
+        self.R = 0.3 #log M when M is the ration between viscosities
 
         #Setup problem grid
         self.create_grid(length, width)
@@ -792,7 +792,7 @@ class PD(NOX.Epetra.Interface.Required,
         term_2_denom = (ref_mag_state ** 2.0) ** -1.0
         term_2_x = scale_factor_2*(pressure_state )* (ref_pos_state_x) * term_2_denom
         term_2_y = scale_factor_2*(pressure_state )* (ref_pos_state_y) * term_2_denom
-        """
+
         for i in range(num_owned):
             for j in range(neighb_number):
                 if(pressure_state[i,j]<=0):
@@ -800,7 +800,7 @@ class PD(NOX.Epetra.Interface.Required,
 
         term_2_x = term_2_x * up_scaler
         term_2_y = term_2_y * up_scaler
-        """
+
         sum_term_2_x = ((term_2_x)*volumes[neighbors]).sum(axis=1)
         sum_term_2_y = ((term_2_y)*volumes[neighbors]).sum(axis=1)
 
@@ -885,9 +885,8 @@ class PD(NOX.Epetra.Interface.Required,
             #update residual F with F_fill
             F[:] = self.F_fill[:]
 
-            #F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 0.0
             F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
-            #F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 0.0
+            F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 0.0
             #F[self.BC_Top_fill_s] = x[self.BC_Top_fill_s] -0.0
             F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 1000.0
             F[self.BC_Right_fill_p] = x[self.BC_Right_fill_p] - 0.0
@@ -900,7 +899,8 @@ class PD(NOX.Epetra.Interface.Required,
             #F[self.center_fill_s] = x[self.center_fill_s] - 1.0 
             #F[self.center_fill_p] = x[self.center_fill_p] - 1000.0 
 
-            x = self.mirror_BC_Top_Bottom(x)
+            
+            #x = self.mirror_BC_Top_Bottom(x)
 
             self.i = self.i + 1
             
@@ -1051,19 +1051,19 @@ if __name__ == "__main__":
  
             sol_pressure = solution[p_local_indices]
             sol_saturation = solution[s_local_indices]
+            
             x = problem.get_x() 
             y = problem.get_y() 
             x_plot = problem.comm.GatherAll( x )
             y_plot = problem.comm.GatherAll( y )
-
-
+            
             sol_p_plot = problem.comm.GatherAll( sol_pressure )
             sol_s_plot = problem.comm.GatherAll( sol_saturation )
             x_plot = comm.GatherAll(x).flatten()
             y_plot = comm.GatherAll(y).flatten()
 
             if problem.rank==0 : 
-                if (i==30 or i==50 or i==100 or i==10000):
+                if (i==1 or i==30 or i==50 or i==100 or i==10000):
                     plt.scatter( x_plot,y_plot, marker = 's', linewidth='0', c = sol_p_plot, s = 50)
                     plt.colorbar()
                     plt.title('Pressure')
@@ -1073,22 +1073,23 @@ if __name__ == "__main__":
                     plt.colorbar()
                     plt.title('Saturation')
                     plt.show()
-            if (i==30):
-                sol_pressure = solution[p_local_indices]
-                sol_saturation = solution[s_local_indices]
-                timer = 2.0 
-                ################ Write Date to Ensight Outfile #################
-                outfile.write_geometry_file_time_step(problem.my_x, problem.my_y)
-                outfile.write_scalar_variable_time_step('saturation', 
-                                                       sol_saturation, timer)
-                outfile.write_scalar_variable_time_step('pressure', 
-                                                       sol_pressure, timer)
-                outfile.write_vector_variable_time_step('displacement', 
-                                                       [0.0*problem.my_x,0.0*problem.my_y], timer)
-                outfile.append_time_step(timer)
-                outfile.write_case_file(comm)
+            sol_pressure = solution[p_local_indices]
+            sol_saturation = solution[s_local_indices]
+            """
+            time = 1.0 
+            ################ Write Date to Ensight Outfile #################
+            outfile.write_geometry_file_time_step(problem.my_x, problem.my_y)
 
-                ################################################################
+            outfile.write_vector_variable_time_step('displacement', 
+                                                   [0.0*problem.my_x,0.0*problem.my_y], time)
+            outfile.write_scalar_variable_time_step('saturation', 
+                                                   sol_saturation, time)
+            outfile.write_scalar_variable_time_step('pressure', 
+                                                   sol_pressure, time)
+            outfile.append_time_step(time)
+            outfile.write_case_file(comm)
 
-                outfile.finalize()
+            ################################################################
+            """
+       # outfile.finalize()
     main()
