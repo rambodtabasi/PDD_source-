@@ -539,8 +539,34 @@ class PD(NOX.Epetra.Interface.Required,
 	self.BC_Left_fill = BC_Left_fill
 	self.BC_Left_fill_p = BC_Left_fill_p
 	self.BC_Left_fill_s = BC_Left_fill_s
-
-        #Bottom BC with one horizon thickness
+        """ inner left BC to simulate disturbance"""
+        x_min_left_dist= np.where(self.my_x >= (2.0*gs+hgs))[0]
+        x_middle_left_dist= np.where(self.my_x <= (3.0*gs+hgs))[0]
+        x_max_left_dist= np.where(self.my_x <= (20.0 * gs))[0]
+	x_left_dist = np.intersect1d(x_min_left_dist,x_max_left_dist)
+        onecolumn = np.intersect1d(x_min_left_dist, x_middle_left_dist)
+        y_left_dist_min = np.where(self.my_y<= hgs)
+        BC_Left_Edge_dist = []
+        for items in onecolumn:
+            current_y = self.my_y[items]
+            my_sin = np.sin(current_y*10.0)/5.0
+            my_sin = (np.absolute(my_sin)) + (2.0 *gs+hgs) 
+            x_max =np.where(self.my_x<=my_sin)[0]
+            for everynode in x_max:
+                if current_y == self.my_y[everynode]:
+                    BC_Left_Edge_dist = np.append(BC_Left_Edge_dist, everynode)
+        BC_Left_Index_dist = np.sort( BC_Left_Edge_dist )
+	BC_Left_fill_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
+	BC_Left_fill_p_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
+	BC_Left_fill_s_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
+	for item in range(len(BC_Left_Index_dist)):
+	    BC_Left_fill_dist[item] = BC_Left_Index_dist[item]
+	    BC_Left_fill_p_dist[item] = 2*BC_Left_Index_dist[item]
+	    BC_Left_fill_s_dist[item] = 2*BC_Left_Index_dist[item]+1
+	self.BC_Left_fill_dist = BC_Left_fill_dist
+	self.BC_Left_fill_p_dist = BC_Left_fill_p_dist
+	self.BC_Left_fill_s_dist = BC_Left_fill_s_dist
+        """Bottom BC with one horizon thickness"""
         ymin_bottom = np.where(self.my_y >= (-hgs))[0]
         ymax_bottom = np.where(self.my_y <= (2.0*gs+hgs))[0]
         BC_Bottom_Edge = np.intersect1d(ymin_bottom,ymax_bottom)
@@ -618,38 +644,49 @@ class PD(NOX.Epetra.Interface.Required,
 
         return
 
-    def mirror_BC_Top_Bottom(self, x):
+    def mirror_BC_Top_Bottom(self, x,F):
         nodes = self.nodes_numb
         ref_index_s = (nodes* 2.0 - 2.0)- 5.0
         ref_index_p = (nodes* 2.0 - 2.0)- 6.0 
         for i in range(len(self.Bel_Top_fill_p)):
             index = self.Bel_Top_fill_p[i]
             if ((index-ref_index_p) % (nodes*2.0) == 0):
-                x[index+2]=x[index]
-                x[index+4]=x[index-2]
-                x[index+6]=x[index-4]
+                xind= x[index]
+                xind2 = x[index-2]
+                xind4 = x[index-4]
+
+                x[index+2]=xind
+                x[index+4]=xind2
+                x[index+6]=xind4
        
         for i in range(len(self.Abo_Bottom_fill_p)):
             index = self.Abo_Bottom_fill_p[i]
             if ((index-6) % (nodes*2.0) == 0):
-                x[index-2]=x[index]
-                x[index-4]=x[index+2]
-                x[index-6]=x[index+4]
-
+                xind= x[index]
+                xind2 = x[index+2]
+                xind4 = x[index+4]
+                x[index-2]=xind
+                x[index-4]=xind2
+                x[index-6]=xind4
         for i in range(len(self.Bel_Top_fill_s)):
             index = self.Bel_Top_fill_s[i]
             if ((index-ref_index_s) % (2.0*nodes) == 0):
-                x[index+2]=x[index]
-                x[index+4]=x[index-2]
-                x[index+6]=x[index-4]
+                xind= x[index]
+                xind2 = x[index-2]
+                xind4 = x[index-4]
+                x[index+2]=xind
+                x[index+4]=xind2
+                x[index+6]=xind4
        
         for i in range(len(self.Abo_Bottom_fill_s)):
             index = self.Abo_Bottom_fill_s[i]
             if ((index-7) % (2.0*nodes) == 0):
-                x[index-2]=x[index]
-                x[index-4]=x[index+2]
-                x[index-6]=x[index+4]
-
+                xind= x[index]
+                xind2 = x[index+2]
+                xind4 = x[index+4]
+                x[index-2]=xind
+                x[index-4]=xind2
+                x[index-6]=xind4
         return x 
 
     def compute_flow(self, pressure, flow, saturation, flag):
@@ -884,7 +921,9 @@ class PD(NOX.Epetra.Interface.Required,
 
             #update residual F with F_fill
             F[:] = self.F_fill[:]
-
+            
+            #if self.iteration == 0:
+                #F[s_local_indices] = x[s_local_indices] -1.0
             F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
             F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 0.0
             #F[self.BC_Top_fill_s] = x[self.BC_Top_fill_s] -0.0
@@ -898,9 +937,8 @@ class PD(NOX.Epetra.Interface.Required,
             #F[self.Bel_Top_fill_s] = x[self.Bel_Top_fill_s] -1.0 
             #F[self.center_fill_s] = x[self.center_fill_s] - 1.0 
             #F[self.center_fill_p] = x[self.center_fill_p] - 1000.0 
-
-            
-            #x = self.mirror_BC_Top_Bottom(x)
+            #F[self.BC_Left_fill_s_dist] = x[self.BC_Left_fill_s_dist]-0.0
+            x = self.mirror_BC_Top_Bottom(x,F)
 
             self.i = self.i + 1
             
@@ -977,7 +1015,7 @@ if __name__ == "__main__":
 
     def main():
 	#Create the PD object
-        nodes=200
+        nodes=100
 	problem = PD(nodes,10)
         comm = problem.comm 
         num_owned = problem.neighborhood_graph.NumMyRows()
@@ -992,7 +1030,6 @@ if __name__ == "__main__":
         s_local_overlap_indices = problem.s_local_overlap_indices 
         problem.saturation_n = problem.ps_overlap[s_local_overlap_indices]
         saturation_n = problem.saturation_n
-        init_s = init_ps_guess[s_local_indices]
 	
 	ps_overlap_importer = problem.get_xy_overlap_importer()
         ps_overlap_map = problem.get_xy_overlap_map()
@@ -1013,7 +1050,17 @@ if __name__ == "__main__":
         outfile = Ensight('output',vector_variables, scalar_variables, 
         problem.comm, viz_path=VIZ_PATH)
         problem.iteration=0
-        end_range = 10005
+        end_range = 20
+
+        x = problem.get_x() 
+        y = problem.get_y() 
+        x_plot = problem.comm.GatherAll( x )
+        y_plot = problem.comm.GatherAll( y )
+        init_s_plot = problem.comm.GatherAll( init_s )
+        x_plot = comm.GatherAll(x).flatten()
+        y_plot = comm.GatherAll(y).flatten()
+
+
         for problem.iteration in range(end_range):
             i = problem.iteration
             print i
@@ -1033,7 +1080,7 @@ if __name__ == "__main__":
             problem.jac_comp = False
             #Create NOX solver object, solve for pressure and saturation  
             solver = NOX.Epetra.defaultSolver(init_ps_guess, problem, 
-                    problem, jacobian,nlParams = nl_params, maxIters=10,
+                    problem, jacobian,nlParams = nl_params, maxIters=20,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 5.0e-5, relTol = 2.0e-9)
             solveStatus = solver.solve()
             finalGroup = solver.getSolutionGroup()
@@ -1051,9 +1098,9 @@ if __name__ == "__main__":
  
             sol_pressure = solution[p_local_indices]
             sol_saturation = solution[s_local_indices]
-            
+            """
             x = problem.get_x() 
-            y = problem.get_y() 
+            y = problem.get_y()
             x_plot = problem.comm.GatherAll( x )
             y_plot = problem.comm.GatherAll( y )
             
@@ -1063,7 +1110,7 @@ if __name__ == "__main__":
             y_plot = comm.GatherAll(y).flatten()
 
             if problem.rank==0 : 
-                if (i==1 or i==30 or i==50 or i==100 or i==10000):
+                if (i==10 or i==30 or i==100):
                     plt.scatter( x_plot,y_plot, marker = 's', linewidth='0', c = sol_p_plot, s = 50)
                     plt.colorbar()
                     plt.title('Pressure')
@@ -1073,10 +1120,8 @@ if __name__ == "__main__":
                     plt.colorbar()
                     plt.title('Saturation')
                     plt.show()
-            sol_pressure = solution[p_local_indices]
-            sol_saturation = solution[s_local_indices]
             """
-            time = 1.0 
+            time = i 
             ################ Write Date to Ensight Outfile #################
             outfile.write_geometry_file_time_step(problem.my_x, problem.my_y)
 
@@ -1090,6 +1135,5 @@ if __name__ == "__main__":
             outfile.write_case_file(comm)
 
             ################################################################
-            """
-       # outfile.finalize()
+        outfile.finalize()
     main()
