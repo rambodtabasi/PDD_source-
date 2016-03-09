@@ -77,7 +77,7 @@ class PD(NOX.Epetra.Interface.Required,
 	self.compressibility = 1.0
         self.density = 1000.0
         self.steps = 3
-        self.R = 0.3 #log M when M is the ration between viscosities
+        self.R = 3.0 #log M when M is the ration between viscosities
 
         #Setup problem grid
         self.create_grid(length, width)
@@ -720,7 +720,7 @@ class PD(NOX.Epetra.Interface.Required,
         viscos = np.exp(R*(ones-saturation))* (1.0/density)
         pressure_state = ma.masked_array(pressure[neighbors] - 
                 pressure[:num_owned,None], mask=neighbors.mask)
-        
+        omega = self.omega 
         #compute the nonlocal permeability from the local constitutive tensor
 
         ### equation 27 from the NL conversion document ###
@@ -745,7 +745,7 @@ class PD(NOX.Epetra.Interface.Required,
                 horizon ** (4.0 - alpha))
 
         ref_mag_state_invert = (ref_mag_state ** ( 2.0 * alpha )) ** -1.0
-        flux_state = (scale_factor * ref_mag_state_invert *
+        flux_state = (scale_factor * omega * ref_mag_state_invert *
                 xi_dot_permeability_dot_xi * pressure_state)
         
         
@@ -774,11 +774,17 @@ class PD(NOX.Epetra.Interface.Required,
         horizon = self.horizon
         density = self.density 
         time_stepping = self.time_stepping
-        pe= 1000.0
+        #peclet number 
+        pe= 5000.0
         R=self.R 
         size = saturation.shape
         ones = np.ones(size)
         viscos = np.exp(R*(ones-saturation))* (1.0/density)
+        """
+        if self.rank == 0 :
+            print np.amax(saturation)
+            #print (np.amin(viscos)/np.amin(viscos))
+            """
         neighb_number = neighbors.shape[1]
         node_number = neighbors.shape[0]
         size_upscaler = (node_number , neighb_number)
@@ -794,42 +800,17 @@ class PD(NOX.Epetra.Interface.Required,
             -saturation_n[:num_owned,None], mask=neighbors.mask)
         viscos_sum = ma.masked_array(viscos[neighbors] + 
                 viscos[:num_owned,None], mask=neighbors.mask)
-
+        omega = self.omega 
         #Intermediate calculations
         ### equation 26 from the NL conversion document ###
-        """
-	gamma_denom = ( np.pi * (horizon**2.0) ) ** -1.0
-        gamma  =  3.0 * gamma_denom
-
-        term_2_denom = (ref_mag_state ** 2.0) ** -1.0
-        term_2_x = gamma *(pressure_state )* (ref_pos_state_x) * term_2_denom
-        term_2_y = gamma *(pressure_state )* (ref_pos_state_y) * term_2_denom
-        term_2 = term_2_x + term_2_y
-        sum_term_2 = ((term_2)*volumes[neighbors]).sum(axis=1)
-
-        term_3_denom = term_2_denom
-        term_3_x = gamma * ( saturation_state )* (ref_pos_state_x) * term_3_denom
-        term_3_y = gamma * ( saturation_state )* (ref_pos_state_y) * term_3_denom
-        term_3 = term_3_x + term_3_y
-        sum_term_3 = ((term_3)*volumes[neighbors]).sum(axis=1) 
-
-        denom_23 = (density*viscos[:num_owned])**-1.0
-        sum_terms_23 =(sum_term_2 * sum_term_3) * denom_23
-
-	term_4_denom = term_2_denom
-        term_4 = (2.0/pe)*(gamma) * saturation_state * term_4_denom
-        sum_term_4 = ((term_4)*volumes[neighbors]).sum(axis=1)
-
-        term_contributions =sum_terms_23+sum_term_4 
-        """
         scale_2_denom = ( np.pi * (horizon**2.0) ) ** -1.0
-        scale_factor_2  =  3.0 * scale_2_denom
+        scale_factor_2  =  6.0 * scale_2_denom
         scale_factor_3 = scale_factor_2
         scale_factor_4 = scale_factor_2
         term_2_denom = (ref_mag_state ** 2.0) ** -1.0
-        term_2_x = scale_factor_2*(pressure_state )* (ref_pos_state_x) * term_2_denom
-        term_2_y = scale_factor_2*(pressure_state )* (ref_pos_state_y) * term_2_denom
-
+        term_2_x = scale_factor_2*omega*(pressure_state )* (ref_pos_state_x) * term_2_denom
+        term_2_y = scale_factor_2*omega*(pressure_state )* (ref_pos_state_y) * term_2_denom
+        """
         for i in range(num_owned):
             for j in range(neighb_number):
                 if(pressure_state[i,j]<=0):
@@ -837,24 +818,24 @@ class PD(NOX.Epetra.Interface.Required,
 
         term_2_x = term_2_x * up_scaler
         term_2_y = term_2_y * up_scaler
-
+        """
         sum_term_2_x = ((term_2_x)*volumes[neighbors]).sum(axis=1)
         sum_term_2_y = ((term_2_y)*volumes[neighbors]).sum(axis=1)
 
 
         term_3_denom = term_2_denom
 
-        term_3_x = scale_factor_3 * ( saturation_state )* (ref_pos_state_x) * term_3_denom
+        term_3_x = scale_factor_3 *omega* ( saturation_state )* (ref_pos_state_x) * term_3_denom
         sum_term_3_x = ((term_3_x)*volumes[neighbors]).sum(axis=1) 
         
-        term_3_y = scale_factor_3 * ( saturation_state ) * (ref_pos_state_y) * term_3_denom
+        term_3_y = scale_factor_3 *omega* ( saturation_state ) * (ref_pos_state_y) * term_3_denom
             
         sum_term_3_y = ((term_3_y)*volumes[neighbors]).sum(axis=1)
 
         sum_terms_23 = (1.0/(density*viscos[:num_owned])) * (sum_term_2_x * sum_term_3_x + sum_term_2_y * sum_term_3_y)
 
 	term_4_denom = term_2_denom
-        term_4 = scale_factor_4 * (1/pe) * saturation_state * term_4_denom
+        term_4 = scale_factor_4*omega * (1.0 /pe) * saturation_state * term_4_denom
         
         sum_term_4 =  ((term_4)*volumes[neighbors]).sum(axis=1)
 
@@ -922,10 +903,11 @@ class PD(NOX.Epetra.Interface.Required,
             #update residual F with F_fill
             F[:] = self.F_fill[:]
             
-            #if self.iteration == 0:
-                #F[s_local_indices] = x[s_local_indices] -1.0
-            F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
-            F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 0.0
+            if self.iteration == 0:
+                F[s_local_indices] = x[s_local_indices] -1.0
+            
+            F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 0.0
+            #F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 1.0
             #F[self.BC_Top_fill_s] = x[self.BC_Top_fill_s] -0.0
             F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 1000.0
             F[self.BC_Right_fill_p] = x[self.BC_Right_fill_p] - 0.0
@@ -938,7 +920,7 @@ class PD(NOX.Epetra.Interface.Required,
             #F[self.center_fill_s] = x[self.center_fill_s] - 1.0 
             #F[self.center_fill_p] = x[self.center_fill_p] - 1000.0 
             #F[self.BC_Left_fill_s_dist] = x[self.BC_Left_fill_s_dist]-0.0
-            x = self.mirror_BC_Top_Bottom(x,F)
+            #x = self.mirror_BC_Top_Bottom(x,F)
 
             self.i = self.i + 1
             
@@ -1015,7 +997,7 @@ if __name__ == "__main__":
 
     def main():
 	#Create the PD object
-        nodes=100
+        nodes=200
 	problem = PD(nodes,10)
         comm = problem.comm 
         num_owned = problem.neighborhood_graph.NumMyRows()
@@ -1034,7 +1016,14 @@ if __name__ == "__main__":
 	ps_overlap_importer = problem.get_xy_overlap_importer()
         ps_overlap_map = problem.get_xy_overlap_map()
         my_ps_overlap = problem.my_ps_overlap
-
+        ref_pos_state_x = problem.my_ref_pos_state_x
+        ref_pos_state_y = problem.my_ref_pos_state_y 
+        """
+        abs_r = np.sqrt(ref_pos_state_x**2.0 + ref_pos_state_y**2.0)
+        r = abs_r / np.amax(abs_r)
+        omega = 34.842 * (r**6) - 88.841 * (r**5) + 68.086 *(r**4) - 4.556*(r**3) - 11.605 *(r**2) + 1.1245 * r + 0.9799 
+        """
+        problem.omega = 1.0
 	#Initialize and change some NOX settings
 	nl_params = NOX.Epetra.defaultNonlinearParameters(problem.comm,2)
 	nl_params["Line Search"]["Method"] = "Polynomial"
@@ -1050,16 +1039,7 @@ if __name__ == "__main__":
         outfile = Ensight('output',vector_variables, scalar_variables, 
         problem.comm, viz_path=VIZ_PATH)
         problem.iteration=0
-        end_range = 20
-
-        x = problem.get_x() 
-        y = problem.get_y() 
-        x_plot = problem.comm.GatherAll( x )
-        y_plot = problem.comm.GatherAll( y )
-        init_s_plot = problem.comm.GatherAll( init_s )
-        x_plot = comm.GatherAll(x).flatten()
-        y_plot = comm.GatherAll(y).flatten()
-
+        end_range = 50
 
         for problem.iteration in range(end_range):
             i = problem.iteration
@@ -1080,7 +1060,7 @@ if __name__ == "__main__":
             problem.jac_comp = False
             #Create NOX solver object, solve for pressure and saturation  
             solver = NOX.Epetra.defaultSolver(init_ps_guess, problem, 
-                    problem, jacobian,nlParams = nl_params, maxIters=20,
+                    problem, jacobian,nlParams = nl_params, maxIters=10,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 5.0e-5, relTol = 2.0e-9)
             solveStatus = solver.solve()
             finalGroup = solver.getSolutionGroup()
@@ -1121,7 +1101,7 @@ if __name__ == "__main__":
                     plt.title('Saturation')
                     plt.show()
             """
-            time = i 
+            time = i * problem.time_stepping
             ################ Write Date to Ensight Outfile #################
             outfile.write_geometry_file_time_step(problem.my_x, problem.my_y)
 
