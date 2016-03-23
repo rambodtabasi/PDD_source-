@@ -77,7 +77,7 @@ class PD(NOX.Epetra.Interface.Required,
 	self.compressibility = 1.0
         self.density = 1000.0
         self.steps = 3
-        self.R = 0.3 #log M when M is the ration between viscosities
+        self.R = 3.0 #log M when M is the ration between viscosities
 
         #Setup problem grid
         self.create_grid(length, width)
@@ -526,7 +526,7 @@ class PD(NOX.Epetra.Interface.Required,
 
         """ Left BC with one horizon thickness"""
         x_min_left= np.where(self.my_x >= -hgs)[0]
-        x_max_left= np.where(self.my_x <= (2.0*gs+hgs))[0]
+        x_max_left= np.where(self.my_x <= (10.0*gs+hgs))[0]
 	BC_Left_Edge = np.intersect1d(x_min_left,x_max_left)
         BC_Left_Index = np.sort( BC_Left_Edge )
 	BC_Left_fill = np.zeros(len(BC_Left_Edge), dtype=np.int32)
@@ -549,7 +549,7 @@ class PD(NOX.Epetra.Interface.Required,
         BC_Left_Edge_dist = []
         for items in onecolumn:
             current_y = self.my_y[items]
-            my_sin = np.sin(current_y*10.0)/5.0
+            my_sin = np.sin(current_y*2.0)/5.0
             my_sin = (np.absolute(my_sin)) + (2.0 *gs+hgs) 
             x_max =np.where(self.my_x<=my_sin)[0]
             for everynode in x_max:
@@ -703,14 +703,12 @@ class PD(NOX.Epetra.Interface.Required,
 	ref_pos_state_x = self.my_ref_pos_state_x
         ref_pos_state_y = self.my_ref_pos_state_y
         ref_mag_state = self.my_ref_mag_state
-       
         volumes = self.my_volumes
         num_owned = neighborhood_graph.NumMyRows()
         permeability = self.permeability
 	compressibility = self.compressibility
         horizon = self.horizon
         density = self.density 
-        
         # calling the saturation functions
         saturation_n = self.saturation_n
         #define viscosity dependence on saturation
@@ -718,83 +716,52 @@ class PD(NOX.Epetra.Interface.Required,
         R=self.R 
         size = saturation.shape
         ones = np.ones(size)
-        viscos = np.exp(R*(ones-saturation))
-        invert_visc = 1.0 / viscos
+        viscos = np.exp(R*(ones - saturation_n))
+        invert_visc = (viscos) ** (-1.0)
+        ######## calculate nonlocal states ###########
+
         pressure_state = ma.masked_array(pressure[neighbors] - 
                 pressure[:num_owned,None], mask=neighbors.mask)
-        saturation_state = ma.masked_array(saturation[neighbors]
-            -saturation[:num_owned,None], mask=neighbors.mask)
+        saturation_state = ma.masked_array(saturation_n[neighbors]
+            -saturation_n[:num_owned,None], mask=neighbors.mask)
         inv_visc_sum = ma.masked_array(invert_visc[neighbors] + 
                 invert_visc[:num_owned,None], mask=neighbors.mask)
-        #inv_visc_sum = 2.0 * invert_visc
+        gamma = 3.0 / ( np.pi * (horizon**2))
         omega = self.omega 
-        """
-        #compute the nonlocal permeability from the local constitutive tensor
-        ### equation 27 from the NL conversion document ###
-        trace = permeability[0,0] + permeability[1,1]
-        peri_perm_xx = permeability[0,0]- 1.0 / 4.0 * trace
-        peri_perm_xy = permeability[0,1]
-        peri_perm_yx = permeability[1,0] 
-        peri_perm_yy = permeability[1,1]- 1.0 / 4.0 * trace
-        permeability_dot_ref_pos_state_x = (peri_perm_xx * ref_pos_state_x/viscos[:num_owned,None]
-                + peri_perm_yx * ref_pos_state_y/viscos[:num_owned,None])
-
-        permeability_dot_ref_pos_state_y = (peri_perm_xy * (ref_pos_state_x/viscos[:num_owned,None])
-                + peri_perm_yy * ref_pos_state_y/viscos[:num_owned,None])
-
-        xi_dot_permeability_dot_xi = (permeability_dot_ref_pos_state_x * 
-                ref_pos_state_x + permeability_dot_ref_pos_state_y * 
-                ref_pos_state_y)
-
-        #Compute the peridynamic flux state
-        alpha = 2.0
-        scale_factor = 2.0 * (4.0 - alpha) / (np.pi * 
-                horizon ** (4.0 - alpha))
-
-        ref_mag_state_invert = (ref_mag_state ** ( 2.0 * alpha )) ** -1.0
-        flux_state = (scale_factor * omega * ref_mag_state_invert *
-                xi_dot_permeability_dot_xi * pressure_state)
-
-        flow[:] = 0.0
-	flow[:num_owned] += (flux_state * volumes[neighbors]).sum(axis=1)
-        
-        
-        
-        gama = 6.0 / ( np.pi * (horizon**2))
-        scale_factor = -1.0 * ((viscos[:num_owned]* density)**-1.0)
-        integ_1_p_x = gama*omega * (ref_pos_state_x * pressure_state) 
-        sum_int_1_p_x = (integ_1_p_x * volumes[neighbors]).sum(axis=1)
-        integ_1_p_y = gama*omega * (ref_pos_state_y * pressure_state) 
-        sum_int_1_p_y = (integ_1_p_y * volumes[neighbors]).sum(axis=1)
-        integ_1_s_x = gama*omega * (ref_pos_state_x * saturation_state)
-        sum_int_1_s_x = (integ_1_s_x * volumes[neighbors]).sum(axis=1)
-        integ_1_s_y = gama*omega * (ref_pos_state_y * saturation_state)
-        sum_int_1_s_y = (integ_1_s_y * volumes[neighbors]).sum(axis=1)
-        term_1 =  scale_factor * R * (sum_int_1_p_x * sum_int_1_s_x + sum_int_1_p_y * sum_int_1_s_y) 
-        integ_2_x = gama*omega* (((ref_pos_state_x * pressure_state) *volumes[neighbors]).sum(axis=1))
-        integ_2_y = gama*omega* (((ref_pos_state_y * pressure_state) *volumes[neighbors]).sum(axis=1))
-        term_2 = scale_factor * (-1.0 * (integ_2_x + integ_2_y))
-        flux_state = term_1 + term_2 
-        """
-        ##########
-                
-        beta = 6.0 / ( np.pi * (horizon**2)) 
         ref_mag_state_invert = (ref_mag_state ** ( 2.0)) ** -1.0
-        scale_factor_p = beta * omega 
-        term_p_x = ((ref_pos_state_x) * pressure_state) * ref_mag_state_invert
-        sum_term_p_x = (term_p_x * volumes[neighbors]).sum(axis=1)
-        term_p_y =  ((ref_pos_state_y) * pressure_state) * ref_mag_state_invert
-        sum_term_p_y = (term_p_y * volumes[neighbors]).sum(axis=1)
-        sum_term_p = scale_factor_p * (sum_term_p_x + sum_term_p_y)
-        scale_factor_s = beta * omega 
-        term_s = scale_factor_s * ((ref_pos_state_x+ ref_pos_state_y) * saturation_state) * ref_mag_state_invert
-        sum_term_s = (term_s * volumes[neighbors]).sum(axis=1)
-        term_1 = R*( invert_visc[:num_owned] * (sum_term_p * sum_term_s) )
-        laplace_p = scale_factor_p * ref_mag_state_invert * pressure_state * inv_visc_sum
-        term_2 =  (laplace_p*volumes[neighbors]).sum(axis=1) 
-        flux_state = term_1 + term_2 
+        grad_c_x = gamma * omega * saturation_state * (ref_pos_state_x) * ref_mag_state_invert 
+        integ_grad_c_x = (grad_c_x * volumes[neighbors]).sum(axis=1)
+        grad_p_x = gamma * omega * pressure_state * (ref_pos_state_x ) * ref_mag_state_invert
+        integ_grad_p_x = (grad_p_x * volumes[neighbors]).sum(axis=1)
+        grad_p_grad_c_x = integ_grad_p_x * integ_grad_c_x 
+        grad_c_y = gamma * omega * saturation_state * (ref_pos_state_y) * ref_mag_state_invert 
+        integ_grad_c_y = (grad_c_y * volumes[neighbors]).sum(axis=1)
+        grad_p_y = gamma * omega * pressure_state * (ref_pos_state_y ) * ref_mag_state_invert
+        integ_grad_p_y = (grad_p_y * volumes[neighbors]).sum(axis=1)
+        grad_p_grad_c_y = integ_grad_p_y * integ_grad_c_y 
+        grad_terms = grad_p_grad_c_x + grad_p_grad_c_y 
+        laplace_p = gamma * omega * ref_mag_state_invert * pressure_state  
+        integ_laplace_p = (laplace_p * volumes[neighbors]).sum(axis=1)
+        residual_flow = R * grad_terms 
+        """
+        ref_mag_state_invert = (ref_mag_state ** ( 2.0)) ** -1.0
+        grad_c_x =  gamma * omega * saturation_state * (ref_pos_state_x) * ref_mag_state_invert 
+        integ_grad_c_x = (grad_c_x * volumes[neighbors]).sum(axis=1)
+        grad_p_x = gamma * omega * pressure_state * (ref_pos_state_x ) * ref_mag_state_invert
+        integ_grad_p_x = (grad_p_x * volumes[neighbors]).sum(axis=1)
+        grad_p_grad_c_x = integ_grad_p_x * integ_grad_c_x 
+        grad_c_y = gamma * omega * saturation_state * (ref_pos_state_y) * ref_mag_state_invert 
+        integ_grad_c_y = (grad_c_y * volumes[neighbors]).sum(axis=1)
+        grad_p_y = gamma * omega * pressure_state * (ref_pos_state_y ) * ref_mag_state_invert
+        integ_grad_p_y = (grad_p_y * volumes[neighbors]).sum(axis=1)
+        grad_p_grad_c_y = integ_grad_p_y * integ_grad_c_y 
+        grad_terms = grad_p_grad_c_x * grad_p_grad_c_y 
+        laplace_p = gamma * omega * ref_mag_state_invert * pressure_state 
+        integ_laplace_p = (laplace_p * volumes[neighbors]).sum(axis=1)
+        residual_flow = (R * invert_visc[:num_owned] * grad_terms) +(2.0 * invert_visc[:num_owned] * integ_laplace_p)
+        """
         flow[:] = 0.0
-	flow[:num_owned] += flux_state
+	flow[:num_owned] += residual_flow
 	return 
     
   
@@ -821,18 +788,8 @@ class PD(NOX.Epetra.Interface.Required,
         R=self.R 
         size = saturation.shape
         ones = np.ones(size)
-        viscos = np.exp(R*(ones-saturation))
-        """
-        if self.rank == 0 :
-            print np.amax(saturation)
-            #print (np.amin(viscos)/np.amin(viscos))
-            """
-        neighb_number = neighbors.shape[1]
-        node_number = neighbors.shape[0]
-        size_upscaler = (node_number , neighb_number)
-        up_scaler = np.ones(size_upscaler)
-        #define viscosity dependence on saturation
-        # R is the initial ratio between the two viscosities. We are taking R as 2 here.
+        viscos = np.exp(R*(ones - saturation_n))
+        invert_visc = (viscos) ** (-1.0)
         #Compute saturation and pressure state
         saturation_state = ma.masked_array(saturation[neighbors]
             -saturation[:num_owned,None], mask=neighbors.mask)
@@ -840,48 +797,49 @@ class PD(NOX.Epetra.Interface.Required,
                 pressure[:num_owned,None], mask=neighbors.mask)
         saturation_n_state = ma.masked_array(saturation_n[neighbors]
             -saturation_n[:num_owned,None], mask=neighbors.mask)
-        viscos_sum = ma.masked_array(viscos[neighbors] + 
-                viscos[:num_owned,None], mask=neighbors.mask)
+        inv_visc_sum = ma.masked_array(invert_visc[neighbors] + 
+                invert_visc[:num_owned,None], mask=neighbors.mask)
+        gamma = 3.0 / ( np.pi * (horizon**2))
         omega = self.omega 
-        #Intermediate calculations
-        ### equation 26 from the NL conversion document ###
-        scale_2_denom = ( np.pi * (horizon**2.0) ) ** -1.0
-        scale_factor_2  =  6.0 * scale_2_denom
-        scale_factor_3 = scale_factor_2
-        scale_factor_4 = scale_factor_2
-        term_2_denom = (ref_mag_state ** 2.0) ** -1.0
-        term_2_x = scale_factor_2*omega*(pressure_state )* (ref_pos_state_x) * term_2_denom
-        term_2_y = scale_factor_2*omega*(pressure_state )* (ref_pos_state_y) * term_2_denom
+        ref_mag_state_invert = (ref_mag_state ** ( 2.0)) ** -1.0
+
+
         """
-        for i in range(num_owned):
-            for j in range(neighb_number):
-                if(pressure_state[i,j]<=0):
-                    up_scaler[i,j] = 0 
+        grad_c_x = inv_visc_sum * gamma * omega * saturation_state * (ref_pos_state_x) * ref_mag_state_invert 
+        integ_grad_c_x = (grad_c_x * volumes[neighbors]).sum(axis=1)
+        grad_p_x = gamma * omega * pressure_state * (ref_pos_state_x ) * ref_mag_state_invert
+        integ_grad_p_x = (grad_p_x * volumes[neighbors]).sum(axis=1)
+        grad_p_grad_c_x = integ_grad_p_x * integ_grad_c_x 
+        grad_c_y = inv_visc_sum * gamma * omega * saturation_state * (ref_pos_state_y) * ref_mag_state_invert 
+        integ_grad_c_y = (grad_c_y * volumes[neighbors]).sum(axis=1)
+        grad_p_y = gamma * omega * pressure_state * (ref_pos_state_y ) * ref_mag_state_invert
+        integ_grad_p_y = (grad_p_y * volumes[neighbors]).sum(axis=1)
+        grad_p_grad_c_y = integ_grad_p_y * integ_grad_c_y 
+        grad_terms = grad_p_grad_c_x + grad_p_grad_c_y 
+        laplace_c = gamma * omega * ref_mag_state_invert * saturation_state 
+        integ_laplace_c = (laplace_c * volumes[neighbors]).sum(axis=1)
+        term_contributions = (grad_terms) + ((2.0/pe) * integ_laplace_c)
+
+
         """
-        term_2_x = term_2_x * up_scaler
-        term_2_y = term_2_y * up_scaler
-        sum_term_2_x = ((term_2_x)*volumes[neighbors]).sum(axis=1)
-        sum_term_2_y = ((term_2_y)*volumes[neighbors]).sum(axis=1)
+        grad_c_x =  gamma * omega * saturation_state * (ref_pos_state_x) * ref_mag_state_invert 
+        integ_grad_c_x = (grad_c_x * volumes[neighbors]).sum(axis=1)
+        grad_p_x = gamma * omega * pressure_state * (ref_pos_state_x ) * ref_mag_state_invert
+        integ_grad_p_x = (grad_p_x * volumes[neighbors]).sum(axis=1)
+        grad_p_grad_c_x = integ_grad_p_x * integ_grad_c_x 
+        grad_c_y =  gamma * omega * saturation_state * (ref_pos_state_y) * ref_mag_state_invert 
+        integ_grad_c_y = (grad_c_y * volumes[neighbors]).sum(axis=1)
+        grad_p_y = gamma * omega * pressure_state * (ref_pos_state_y ) * ref_mag_state_invert
+        integ_grad_p_y = (grad_p_y * volumes[neighbors]).sum(axis=1)
+        grad_p_grad_c_y = integ_grad_p_y * integ_grad_c_y 
+        grad_terms = grad_p_grad_c_x + grad_p_grad_c_y 
 
-
-        term_3_denom = term_2_denom
-
-        term_3_x = scale_factor_3 *omega* ( saturation_state )* (ref_pos_state_x) * term_3_denom
-        sum_term_3_x = ((term_3_x)*volumes[neighbors]).sum(axis=1) 
+        laplace_c = gamma * omega * ref_mag_state_invert * saturation_state 
+        integ_laplace_c = (laplace_c * volumes[neighbors]).sum(axis=1)
+        term_contributions = (invert_visc[:num_owned] * grad_terms) + ((2.0/pe) * integ_laplace_c)
         
-        term_3_y = scale_factor_3 *omega* ( saturation_state ) * (ref_pos_state_y) * term_3_denom
-            
-        sum_term_3_y = ((term_3_y)*volumes[neighbors]).sum(axis=1)
-
-        sum_terms_23 = (viscos[:num_owned]) * (sum_term_2_x * sum_term_3_x + sum_term_2_y * sum_term_3_y)
-	term_4_denom = term_2_denom
-        term_4 = scale_factor_4*omega * (1.0 /pe) * saturation_state * term_4_denom
         
-        sum_term_4 =  ((term_4)*volumes[neighbors]).sum(axis=1)
-
-        term_contributions =  sum_terms_23  + sum_term_4 
         residual=(((saturation[:num_owned] - saturation_n[:num_owned]) / time_stepping )- term_contributions)
-        #Integrate nodal flux
         #Sum the flux contribution from j nodes to i node
         trans[:] = 0.0
 	trans[:num_owned] += (residual)
@@ -917,7 +875,6 @@ class PD(NOX.Epetra.Interface.Required,
             
 	    my_p_overlap = self.ps_overlap[p_local_overlap_indices]
             my_s_overlap = self.ps_overlap[s_local_overlap_indices]
-            my_p = self.my_ps[self.p_local_indices]
             
 	    #Compute the internal flow
             self.compute_flow(my_p_overlap, self.my_flow_overlap, 
@@ -941,10 +898,11 @@ class PD(NOX.Epetra.Interface.Required,
 
             #update residual F with F_fill
             F[:] = self.F_fill[:]
-            if self.iteration == 0:
-                F[s_local_indices] = x[s_local_indices] -1.0
-            F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 0.0
-            #F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 0.0
+            #if self.iteration_BC == 0:
+                #F[s_local_indices] = x[s_local_indices] -0.0
+                #F[self.BC_Left_fill_s_dist] = x[self.BC_Left_fill_s_dist]-1.0
+            F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
+            #F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 1.0
             #F[self.BC_Top_fill_s] = x[self.BC_Top_fill_s] -0.0
             F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 1000.0
             F[self.BC_Right_fill_p] = x[self.BC_Right_fill_p] - 0.0
@@ -956,8 +914,7 @@ class PD(NOX.Epetra.Interface.Required,
             #F[self.Bel_Top_fill_s] = x[self.Bel_Top_fill_s] -1.0 
             #F[self.center_fill_s] = x[self.center_fill_s] - 1.0 
             #F[self.center_fill_p] = x[self.center_fill_p] - 1000.0 
-            #F[self.BC_Left_fill_s_dist] = x[self.BC_Left_fill_s_dist]-0.0
-            x = self.mirror_BC_Top_Bottom(x,F)
+            #x = self.mirror_BC_Top_Bottom(x,F)
 
             self.i = self.i + 1
             
@@ -1034,7 +991,7 @@ if __name__ == "__main__":
 
     def main():
 	#Create the PD object
-        nodes=40
+        nodes=100
 	problem = PD(nodes,10)
         comm = problem.comm 
         num_owned = problem.neighborhood_graph.NumMyRows()
@@ -1077,13 +1034,11 @@ if __name__ == "__main__":
         graph = problem.get_balanced_neighborhood_graph()
         balanced_map = problem.get_balanced_map()
         problem.iteration=0
-        end_range = 10 
-
+        end_range = 5
         for problem.iteration in range(end_range):
             i = problem.iteration
-            print i
-            
-
+            print i  
+            problem.iteration_BC = i 
             """ USE Finite Difference Coloring to compute jacobian.  Distinction is made 
                     between fdc and solver, as fdc handles export to overlap automatically """
 
@@ -1097,7 +1052,7 @@ if __name__ == "__main__":
             problem.jac_comp = False
             #Create NOX solver object, solve for pressure and saturation  
             solver = NOX.Epetra.defaultSolver(init_ps_guess, problem, 
-                    problem, jacobian,nlParams = nl_params, maxIters=10,
+                    problem, jacobian,nlParams = nl_params, maxIters=50,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 5.0e-5, relTol = 2.0e-9)
             solveStatus = solver.solve()
             finalGroup = solver.getSolutionGroup()
@@ -1106,40 +1061,17 @@ if __name__ == "__main__":
             #resetting the initial conditions
             init_ps_guess[p_local_indices]=solution[p_local_indices]
             #start from the initial guess of zero 
-            init_ps_guess[s_local_indices]= init_s
+            init_ps_guess[s_local_indices]= solution[s_local_indices]
             saturation_n = solution[s_local_indices]
             my_ps_overlap.Import( solution, ps_overlap_importer, Epetra.Insert )
             problem.saturation_n = my_ps_overlap[s_local_overlap_indices]
-            
             #plotting the results 
  
             sol_pressure = solution[p_local_indices]
             sol_saturation = solution[s_local_indices]
-            """
-            x = problem.get_x() 
-            y = problem.get_y()
-            x_plot = problem.comm.GatherAll( x )
-            y_plot = problem.comm.GatherAll( y )
             
-            sol_p_plot = problem.comm.GatherAll( sol_pressure )
-            sol_s_plot = problem.comm.GatherAll( sol_saturation )
-            x_plot = comm.GatherAll(x).flatten()
-            y_plot = comm.GatherAll(y).flatten()
-
-            if problem.rank==0 : 
-                if (i==10 or i==30 or i==100):
-                    plt.scatter( x_plot,y_plot, marker = 's', linewidth='0', c = sol_p_plot, s = 50)
-                    plt.colorbar()
-                    plt.title('Pressure')
-                    plt.show()
-                    #plt.scatter( x,y, marker = 's', c = sol_saturation, s = 50 )
-                    plt.scatter( x_plot,y_plot, marker = 's', linewidth='0', c = sol_s_plot, s = 50 )
-                    plt.colorbar()
-                    plt.title('Saturation')
-                    plt.show()
-            """
-            time = i * problem.time_stepping
             ################ Write Date to Ensight Outfile #################
+            time = i * problem.time_stepping
             outfile.write_geometry_file_time_step(problem.my_x, problem.my_y)
 
             outfile.write_vector_variable_time_step('displacement', 
