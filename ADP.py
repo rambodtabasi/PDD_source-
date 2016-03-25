@@ -742,7 +742,7 @@ class PD(NOX.Epetra.Interface.Required,
         grad_terms = grad_p_grad_c_x + grad_p_grad_c_y 
         laplace_p = gamma * omega * ref_mag_state_invert * pressure_state  
         integ_laplace_p = (laplace_p * volumes[neighbors]).sum(axis=1)
-        residual_flow = R * grad_terms 
+        residual_flow = R * grad_terms + laplace_p 
         """
         ref_mag_state_invert = (ref_mag_state ** ( 2.0)) ** -1.0
         grad_c_x =  gamma * omega * saturation_state * (ref_pos_state_x) * ref_mag_state_invert 
