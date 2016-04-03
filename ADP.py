@@ -45,6 +45,7 @@ class PD(NOX.Epetra.Interface.Required,
         self.rank = self.comm.MyPID()
         self.size = self.comm.NumProc()
         self.nodes_numb = num_nodes
+        self.width = width 
 	#Print version statement
     
         if self.rank == 0: print("PDD.py version 0.4.0zzz\n")
@@ -53,7 +54,7 @@ class PD(NOX.Epetra.Interface.Required,
         self.iteration = 0
         self.num_nodes = num_nodes
         self.length = length
-        self.time_stepping = 0.001
+        self.time_stepping = 0.0001
         self.grid_spacing = float(length) / (num_nodes - 1)
         self.bc_values = bc_values
         self.symm_bcs = symm_bcs
@@ -80,32 +81,33 @@ class PD(NOX.Epetra.Interface.Required,
         self.R = 3.0 #log M when M is the ration between viscosities
 
         #Setup problem grid
-        self.create_grid(length, width)
+        self.create_grid(length, width, 0.0 )
         #Find the global family array
-        self.get_neighborhoods()
+        self.get_neighborhoods(width,length)
         #Initialize the neighborhood graph
+        #check to see how the neighbors match
         self.__init_neighborhood_graph()
         #Load balance
         self.__load_balance()
         #Initialize jacobian
         self.__init_jacobian()
-
 	#self.__init_overlap_import_export()
 
         #Initialize grid data structures
         self.__init_grid_data()
-    
-    def create_grid(self, length, width):
+    def isinteger(x):
+        return np.equal(np.mod(x, 1), 0)
+    def create_grid(self, length, width,flag):
         """Private member function that creates initial rectangular grid"""
-
-        if self.rank == 0:
             #Create grid, if width == 0, then create a 1d line of nodes
+        if self.rank ==0 :
             j = np.complex(0,1)
             if width > 0.0:
                 grid = np.mgrid[0:length:self.num_nodes*j,
-                        0:width:self.num_nodes*j]
-                self.nodes = np.asarray(zip(grid[0].ravel(),grid[1].ravel()), 
+                        0:width:self.num_nodes*j*0.02]
+                self.nodes  = np.asarray(zip(grid[0].ravel(),grid[1].ravel()), 
                         dtype=np.double)
+
             else:
                 x = np.r_[0.0:length:self.num_nodes*j]
                 y = np.r_[[0.0] * self.num_nodes]
@@ -121,21 +123,77 @@ class PD(NOX.Epetra.Interface.Required,
 
         return
 
-
-    def get_neighborhoods(self):
+    def get_neighborhoods(self,width,length):
 	""" cKDTree implemented for neighbor search """
-        
         if self.rank == 0:
             #Create a kdtree to do nearest neighbor search
             tree = scipy.spatial.cKDTree(self.nodes)
-
             #Get all neighborhoods
-            self.neighborhoods = tree.query_ball_point(self.nodes, 
+            for i in range(len(self.nodes)):
+                nodes = self.nodes[i]
+                if nodes[1] < self.horizon: 
+                    self.nodes[i][1]= nodes[1] + width + self.grid_spacing
+            self.neighborhoods_down = tree.query_ball_point(self.nodes, 
                     r=self.horizon, eps=0.0, p=2)
+        self.create_grid(length, width,0)
+        if self.rank == 0: 
+            tree = scipy.spatial.cKDTree(self.nodes)
+            for i in range(len(self.nodes)):
+                nodes = self.nodes[i]
+                if nodes[1] > (width - self.horizon): 
+                    self.nodes[i][1]= nodes[1] - width - self.grid_spacing
+            self.neighborhoods_up = tree.query_ball_point(self.nodes, 
+                    r=self.horizon, eps=0.0, p=2)
+        self.create_grid(length,width,0)
+        if self.rank ==0:
+            tree = scipy.spatial.cKDTree(self.nodes)
+            self.neighborhoods= self.neighborhoods_down
+            for i in range(len(self.nodes)):
+                self.neighborhoods[i] = np.append(self.neighborhoods_down[i], self.neighborhoods_up[i])
+                self.neighborhoods[i] = np.array(self.neighborhoods[i] , dtype=np.int32)
+            """
+            for i in range(len(self.nodes)):
+                nodes = self.nodes[i]
+                #neighbs = self.neighborhoods[i]
+                if nodes[1]<self.horizon:
+                    for j in range(len(self.nodes)) :
+                        near_nodes = self.nodes[j]
+                        if np.absolute(near_nodes[0]-nodes[0] < self.horizon):
+                            if np.absolute((width - near_nodes[1])-nodes[1])< self.horizon:
+                                self.neighborhoods[i] = np.append(self.neighborhoods[i], [j])
+                                self.neighborhoods[i] = np.array(self.neighborhoods[i] , dtype=np.int32)
+            """
 	else:
             #Setup empty data on other ranks
             self.neighborhoods = []
 
+        """
+        print self.nodes
+        #self.create_grid(length, width, 1 )
+        if self.rank==0 : 
+            for i in self.neighborhoods:
+                for current_node in self.nodes[i]:
+                    if current_node[1] < 0:
+                        new_y= width + current_node[1]
+                        self.nodes[i] = [current_node[0],new_y]
+            print self.nodes
+            for i in range(len(self.neighborhoods)):
+                for neighbors in self.neighborhoods[i]:
+                    xy_of_neighbs = self.nodes[neighbors]
+                    if xy_of_neighbs[1]<0.0:
+                        self.nodes[neighbors][1] = xy_of_neighbs[1]+width + self.grid_spacing
+                    if xy_of_neighbs[1]>width:
+                        self.nodes[neighbors][1]=xy_of_neighbs[1]-width - self.grid_spacing
+            plt.plot(self.nodes[:,0], self.nodes[:,1], '.')
+            for neighb in self.neighborhoods[0]:
+                xy_of_neig = self.nodes[neighb]
+                plt.plot(xy_of_neig[0], xy_of_neig[1], 'rs')
+            for neighb in self.neighborhoods[1300]:
+                xy_of_neig = self.nodes[neighb]
+                plt.plot(xy_of_neig[0], xy_of_neig[1], 'g^')
+            plt.margins(0.1, 0.1)
+            plt.show()
+        """
         return
 
 
@@ -351,7 +409,6 @@ class PD(NOX.Epetra.Interface.Required,
 	#Allocate the neighborhood array, fill with -1's as placeholders
         my_neighbors_temp = np.ones((my_num_rows, my_row_max_entries), 
                 dtype=np.int32) * -1
-        
 	#Extract the local node ids from the graph (except on the diagonal) 
         #and fill neighborhood array
         for rid in range(my_num_rows):
@@ -406,20 +463,41 @@ class PD(NOX.Epetra.Interface.Required,
 
 	my_x_overlap = my_xy_overlap[p_local_overlap_indices]
 	my_y_overlap = my_xy_overlap[s_local_overlap_indices]
-      
-       
+        
 	#Compute reference position state of all nodes
         self.my_ref_pos_state_x = ma.masked_array(
                 my_x_overlap[[self.my_neighbors]] - 
                 my_x_overlap[:my_num_rows,None], 
                 mask=self.my_neighbors.mask)
-        
 	#
 	self.my_ref_pos_state_y = ma.masked_array(
                 my_y_overlap[[self.my_neighbors]] - 
                 my_y_overlap[:my_num_rows,None], 
                 mask=self.my_neighbors.mask)
-        
+
+
+        width = self.width 
+        for i in range(len(self.my_ref_pos_state_y[:,1])):
+            for j in range(len(self.my_ref_pos_state_y[1,:])):
+                if self.my_ref_pos_state_y[i,j] > (self.horizon):
+                    self.my_ref_pos_state_y[i,j] =  self.my_ref_pos_state_y[i,j] - width - self.grid_spacing 
+                if self.my_ref_pos_state_y[i,j] < -(self.horizon):
+                    self.my_ref_pos_state_y[i,j] =  width + self.grid_spacing + self.my_ref_pos_state_y[i,j]
+	self.my_ref_pos_state_y = ma.masked_array(self.my_ref_pos_state_y, 
+                mask=self.my_neighbors.mask)
+        ### plotting the neighborhoods to check###
+        """
+        if self.rank==0:
+            plt.plot(self.nodes[:,0], self.nodes[:,1], '.')
+            for items in self.my_neighbors[0]:
+                if np.equal(np.mod(items,1),0)== True:
+                    nearby_points = self.nodes[items]
+                    plt.plot(nearby_points[0],nearby_points[1],'o')
+            plt.margins(0.1,0.1)
+            plt.show()
+        """
+
+
 	#Compute reference magnitude state of all nodes
         self.my_ref_mag_state = (self.my_ref_pos_state_x * 
                 self.my_ref_pos_state_x + self.my_ref_pos_state_y * 
@@ -432,7 +510,7 @@ class PD(NOX.Epetra.Interface.Required,
 	self.vol = self.grid_spacing * self.grid_spacing
 
       
-        #Extract x,y, amd p [owned] vectors 
+        #Extract x,y, and p [owned] vectors 
         neighbor = self.my_neighbors 
 
         my_p = my_ps[p_local_indices]
@@ -539,9 +617,24 @@ class PD(NOX.Epetra.Interface.Required,
 	self.BC_Left_fill = BC_Left_fill
 	self.BC_Left_fill_p = BC_Left_fill_p
 	self.BC_Left_fill_s = BC_Left_fill_s
+        """ Left BC with two horizon thickness"""
+        x_min_left= np.where(self.my_x >= -hgs)[0]
+        x_max_left= np.where(self.my_x <= (4.0*gs+hgs))[0]
+	BC_Left_Edge_double = np.intersect1d(x_min_left,x_max_left)
+        BC_Left_Index_double = np.sort( BC_Left_Edge_double )
+	BC_Left_fill_double = np.zeros(len(BC_Left_Edge_double), dtype=np.int32)
+	BC_Left_fill_p_double = np.zeros(len(BC_Left_Edge_double), dtype=np.int32)
+	BC_Left_fill_s_double = np.zeros(len(BC_Left_Edge_double), dtype=np.int32)
+	for item in range(len(BC_Left_Index_double)):
+	    BC_Left_fill_double[item] = BC_Left_Index_double[item]
+	    BC_Left_fill_p_double[item] = 2*BC_Left_Index_double[item]
+	    BC_Left_fill_s_double[item] = 2*BC_Left_Index_double[item]+1
+	self.BC_Left_fill_double = BC_Left_fill_double
+	self.BC_Left_fill_p_double = BC_Left_fill_p_double
+	self.BC_Left_fill_s_double = BC_Left_fill_s_double
         """ inner left BC to simulate disturbance"""
-        x_min_left_dist= np.where(self.my_x >= (2.0*gs+hgs))[0]
-        x_middle_left_dist= np.where(self.my_x <= (3.0*gs+hgs))[0]
+        x_min_left_dist= np.where(self.my_x >= (3.0*gs+hgs))[0]
+        x_middle_left_dist= np.where(self.my_x <= (4.0*gs+hgs))[0]
         x_max_left_dist= np.where(self.my_x <= (20.0 * gs))[0]
 	x_left_dist = np.intersect1d(x_min_left_dist,x_max_left_dist)
         onecolumn = np.intersect1d(x_min_left_dist, x_middle_left_dist)
@@ -549,7 +642,7 @@ class PD(NOX.Epetra.Interface.Required,
         BC_Left_Edge_dist = []
         for items in onecolumn:
             current_y = self.my_y[items]
-            my_sin = np.sin(current_y*5.0)/5.0
+            my_sin = np.sin(current_y*0.5)/5.0
             my_sin = (np.absolute(my_sin)) + (2.0 *gs+hgs) 
             x_max =np.where(self.my_x<=my_sin)[0]
             for everynode in x_max:
@@ -759,7 +852,7 @@ class PD(NOX.Epetra.Interface.Required,
         grad_terms = grad_p_grad_c_x + grad_p_grad_c_y 
         laplace_p = gamma * omega * ref_mag_state_invert * pressure_state 
         integ_laplace_p = (laplace_p * volumes[neighbors]).sum(axis=1)
-        residual_flow = (R * invert_visc[:num_owned] * grad_terms) +(2.0 * invert_visc[:num_owned] * integ_laplace_p)
+        residual_flow = (R* grad_terms) +(2.0 * integ_laplace_p)
         flow[:] = 0.0
 	flow[:num_owned] += residual_flow
 	return 
@@ -783,7 +876,7 @@ class PD(NOX.Epetra.Interface.Required,
         density = self.density 
         time_stepping = self.time_stepping
         #peclet number 
-        pe= 5000.0
+        pe= 10000.0
         R=self.R 
         size = saturation.shape
         ones = np.ones(size)
@@ -896,15 +989,15 @@ class PD(NOX.Epetra.Interface.Required,
             #update residual F with F_fill
             F[:] = self.F_fill[:]
 
-            if self.iteration_BC == 0:
-                F[self.BC_Left_fill_s_dist] = x[self.BC_Left_fill_s_dist]-1.0
-
+            #if self.iteration_BC == 0:
+            #F[self.BC_Left_fill_s_dist] = x[self.BC_Left_fill_s_dist]-1.0
+            
             F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
             
-            F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 5000.0
+            F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 1000.0
             F[self.BC_Right_fill_p] = x[self.BC_Right_fill_p] - 0.0
 
-            x = self.mirror_BC_Top_Bottom(x,F)
+            #x = self.mirror_BC_Top_Bottom(x,F)
 
             self.i = self.i + 1
             
@@ -981,7 +1074,7 @@ if __name__ == "__main__":
 
     def main():
 	#Create the PD object
-        nodes=400
+        nodes=1000
 	problem = PD(nodes,10)
         comm = problem.comm 
         num_owned = problem.neighborhood_graph.NumMyRows()
@@ -1020,7 +1113,7 @@ if __name__ == "__main__":
         graph = problem.get_balanced_neighborhood_graph()
         balanced_map = problem.get_balanced_map()
         problem.iteration=0
-        end_range = 100
+        end_range = 10000
         for problem.iteration in range(end_range):
             i = problem.iteration
             print i  
@@ -1038,7 +1131,7 @@ if __name__ == "__main__":
             problem.jac_comp = False
             #Create NOX solver object, solve for pressure and saturation  
             solver = NOX.Epetra.defaultSolver(init_ps_guess, problem, 
-                    problem, jacobian,nlParams = nl_params, maxIters=20,
+                    problem, jacobian,nlParams = nl_params, maxIters=50,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 5.0e-5, relTol = 2.0e-9)
             solveStatus = solver.solve()
             finalGroup = solver.getSolutionGroup()
