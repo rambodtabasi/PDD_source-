@@ -36,7 +36,7 @@ class PD(NOX.Epetra.Interface.Required,
     def __init__(self, num_nodes, length, width=10.0, bc_regions=None, 
             bc_values=None, symm_bcs=False, horizon=None, verbose=None):
         """Instantiate the problem object"""
-        self.aspect_ratio = 0.1
+        self.aspect_ratio = 0.2
         width = length * self.aspect_ratio
         #width = 0.0
         NOX.Epetra.Interface.Required.__init__(self)
@@ -80,7 +80,7 @@ class PD(NOX.Epetra.Interface.Required,
 	self.compressibility = 1.0
         self.density = 1000.0
         self.steps = 3
-        self.R = 1.5 #log M when M is the ration between viscosities
+        self.R = 1.0 #log M when M is the ration between viscosities
 
         #Setup problem grid
         self.create_grid(length, width, 0.0 )
@@ -1083,7 +1083,7 @@ if __name__ == "__main__":
     def main():
 	#Create the PD object
         nodes=800
-	problem = PD(nodes,30.0)
+	problem = PD(nodes,15.0)
         comm = problem.comm 
         num_owned = problem.neighborhood_graph.NumMyRows()
         problem.omega = 1.0
@@ -1126,7 +1126,7 @@ if __name__ == "__main__":
         graph = problem.get_balanced_neighborhood_graph()
         balanced_map = problem.get_balanced_map()
         problem.iteration=0
-        end_range = 20000
+        end_range = 200
         for problem.iteration in range(end_range):
             i = problem.iteration
             print i  
@@ -1143,7 +1143,7 @@ if __name__ == "__main__":
             problem.jac_comp = False
             #Create NOX solver object, solve for pressure and saturation  
             solver = NOX.Epetra.defaultSolver(init_ps_guess, problem, 
-                    problem, jacobian,nlParams = nl_params, maxIters=150,
+                    problem, jacobian,nlParams = nl_params, maxIters=300,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 5.0e-6, relTol = 2.0e-10)
             solveStatus = solver.solve()
             finalGroup = solver.getSolutionGroup()
