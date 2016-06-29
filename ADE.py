@@ -38,7 +38,7 @@ class PD(NOX.Epetra.Interface.Required,
         """Instantiate the problem object"""
         self.aspect_ratio = 0.2
         width = length * self.aspect_ratio
-        #width = 0.0
+        width = 0.0
         NOX.Epetra.Interface.Required.__init__(self)
         NOX.Epetra.Interface.Jacobian.__init__(self)
 
@@ -56,7 +56,7 @@ class PD(NOX.Epetra.Interface.Required,
 	# Domain properties
         self.iteration = 0
         self.num_nodes = num_nodes
-        self.time_stepping = 0.0005
+        self.time_stepping = 0.0025
         self.grid_spacing = float(length) / (num_nodes - 1)
         self.bc_values = bc_values
         self.symm_bcs = symm_bcs
@@ -66,7 +66,7 @@ class PD(NOX.Epetra.Interface.Required,
         if horizon != None:
             self.horizon = horizon
         else:
-            self.horizon = 3.15 * (10.0/400.0)
+            self.horizon = 3.15 * self.grid_spacing
 
         if verbose != None:
             self.verbose = True
@@ -80,7 +80,7 @@ class PD(NOX.Epetra.Interface.Required,
 	self.compressibility = 1.0
         self.density = 1000.0
         self.steps = 3
-        self.R = 1.0 #log M when M is the ration between viscosities
+        self.R = 0.8 #log M when M is the ration between viscosities
 
         #Setup problem grid
         self.create_grid(length, width, 0.0 )
@@ -633,17 +633,17 @@ class PD(NOX.Epetra.Interface.Required,
 	self.BC_Left_fill_s_double = BC_Left_fill_s_double
         """ inner left BC to simulate disturbance"""
         x_min_left_dist= np.where(self.my_x >= (3.0*gs+hgs))[0]
-        x_middle_left_dist= np.where(self.my_x <= (4.0*gs+hgs))[0]
-        x_max_left_dist= np.where(self.my_x <= (5.0 * gs))[0]
-	x_left_dist = np.intersect1d(x_min_left_dist,x_max_left_dist)
-        x_column = np.intersect1d(x_min_left_dist, x_middle_left_dist)
+        x_middle_left_dist= np.where(self.my_x <= (6.0*gs+hgs))[0]
+        x_max_left_dist= np.where(self.my_x <= (4.0 * gs+hgs))[0]
+	#x_left_dist = np.intersect1d(x_min_left_dist,x_max_left_dist)
+        x_column = np.intersect1d(x_min_left_dist, x_max_left_dist)
         y_left_dist_min = np.where(self.my_y>= 4.0*gs)
         y_left_dist_max = np.where(self.my_y<= ((l*self.aspect_ratio)-4.0*gs))
         y_column = np.intersect1d(y_left_dist_max,y_left_dist_min)
         onecolumn = np.intersect1d(y_column,x_column)
         BC_Left_Edge_dist = []
         #number of waves
-        n=3.0
+        n=9.0
         for items in onecolumn:
             current_y = self.my_y[items]
             my_sin = np.sin(current_y*(n/width)*np.pi)/3.0
@@ -652,6 +652,7 @@ class PD(NOX.Epetra.Interface.Required,
             for everynode in x_max:
                 if current_y == self.my_y[everynode]:
                     BC_Left_Edge_dist = np.append(BC_Left_Edge_dist, everynode)
+        BC_Left_Edge_dist = np.intersect1d(BC_Left_Edge_dist , x_middle_left_dist)
         BC_Left_Index_dist = np.sort( BC_Left_Edge_dist )
 	BC_Left_fill_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
 	BC_Left_fill_p_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
@@ -836,7 +837,7 @@ class PD(NOX.Epetra.Interface.Required,
             -saturation_n[:num_owned,None], mask=neighbors.mask)
         inv_visc_sum = ma.masked_array(invert_visc[neighbors] + 
                 invert_visc[:num_owned,None], mask=neighbors.mask)
-        gamma = 3.0 / ( np.pi * (horizon**2))
+        gamma = 6.0 / ( np.pi * (horizon**2))
         omega = self.omega 
         """
         for i in range(num_owned):
@@ -906,21 +907,12 @@ class PD(NOX.Epetra.Interface.Required,
             -saturation_n[:num_owned,None], mask=neighbors.mask)
         inv_visc_sum = ma.masked_array(invert_visc[neighbors] + 
                 invert_visc[:num_owned,None], mask=neighbors.mask)
-        gamma = 3.0 / ( np.pi * (horizon**2))
+        gamma = 6.0 / ( np.pi * (horizon**2))
         omega = self.omega 
-        """
-        for i in range(num_owned):
-            for j in range(neighb_number):
-                if(pressure_state[i,j]<=0):
-                    pressure_state[i,j] = 0 
-                    saturation_state[i,j] = 0
-                    #up_scaler[i,j] = 0.0 """
-        #pressure_state = pressure_state.clip(min=0)
-        #saturation_state = saturation_state.clip(min=0)
         up_scaler = pressure_state.clip(min=0)/pressure_state
-        #print up_scaler
         ref_mag_state_invert = (ref_mag_state ** ( 2.0)) ** -1.0
         grad_c_x =  gamma * omega * saturation_state * (ref_pos_state_x) * ref_mag_state_invert 
+        grad_c_x = up_scaler * grad_c_x
         integ_grad_c_x = (grad_c_x * volumes[neighbors]).sum(axis=1)
         grad_p_x = gamma * omega * pressure_state * (ref_pos_state_x ) * ref_mag_state_invert
         #implimenting upwinding
@@ -928,6 +920,7 @@ class PD(NOX.Epetra.Interface.Required,
         integ_grad_p_x = (grad_p_x * volumes[neighbors]).sum(axis=1)
         grad_p_grad_c_x = integ_grad_p_x * integ_grad_c_x 
         grad_c_y =  gamma * omega * saturation_state * (ref_pos_state_y) * ref_mag_state_invert 
+        grad_c_y = up_scaler * grad_c_y
         integ_grad_c_y = (grad_c_y * volumes[neighbors]).sum(axis=1)
         grad_p_y = gamma * omega * pressure_state * (ref_pos_state_y ) * ref_mag_state_invert
         grad_p_y = up_scaler * grad_p_y
@@ -1005,7 +998,7 @@ class PD(NOX.Epetra.Interface.Required,
             F[self.BC_Left_fill_s_dist] = x[self.BC_Left_fill_s_dist]-1.0
             
             F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
-            F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 5000.0
+            F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 5000.0/3.0
             F[self.BC_Right_fill_p] = x[self.BC_Right_fill_p] - 0.0
             self.i = self.i + 1
             
@@ -1082,11 +1075,12 @@ if __name__ == "__main__":
 
     def main():
 	#Create the PD object
-        nodes=800
-	problem = PD(nodes,15.0)
+        nodes=1000
+	problem = PD(nodes,10.0)
         comm = problem.comm 
         num_owned = problem.neighborhood_graph.NumMyRows()
         problem.omega = 1.0
+        time0=ttt.time()
 
 	#Define the initial guess
 	init_ps_guess = problem.get_ps_init()
@@ -1099,8 +1093,8 @@ if __name__ == "__main__":
         p_local_overlap_indices = problem.p_local_overlap_indices 
         problem.saturation_n = problem.ps_overlap[s_local_overlap_indices]
         saturation_n = problem.saturation_n
-        problem.p_left_BC= np.zeros(len(problem.BC_Left_fill_p), dtype = np.int32)
-	problem.p_left_BC = 5000.0/3.0
+        #problem.p_left_BC= np.zeros(len(problem.BC_Left_fill_p), dtype = np.int32)
+	#problem.p_left_BC = 5000.0/3.0
 	ps_overlap_importer = problem.get_xy_overlap_importer()
         ps_overlap_map = problem.get_xy_overlap_map()
         my_ps_overlap = problem.my_ps_overlap
@@ -1126,7 +1120,9 @@ if __name__ == "__main__":
         graph = problem.get_balanced_neighborhood_graph()
         balanced_map = problem.get_balanced_map()
         problem.iteration=0
-        end_range = 200
+        end_range = 30
+        max_sat =0.0
+        max_sat_temp =0.0
         for problem.iteration in range(end_range):
             i = problem.iteration
             print i  
@@ -1143,8 +1139,8 @@ if __name__ == "__main__":
             problem.jac_comp = False
             #Create NOX solver object, solve for pressure and saturation  
             solver = NOX.Epetra.defaultSolver(init_ps_guess, problem, 
-                    problem, jacobian,nlParams = nl_params, maxIters=300,
-                    wAbsTol=None, wRelTol=None, updateTol=None, absTol = 5.0e-6, relTol = 2.0e-10)
+                    problem, jacobian,nlParams = nl_params, maxIters=500,
+                    wAbsTol=None, wRelTol=None, updateTol=None, absTol = 5.0e-3, relTol = 2.0e-6)
             solveStatus = solver.solve()
             finalGroup = solver.getSolutionGroup()
             solution = finalGroup.getX()
@@ -1166,7 +1162,9 @@ if __name__ == "__main__":
             #plotting the results 
             sol_pressure = solution[p_local_indices]
             sol_saturation = solution[s_local_indices]
-            
+            #max_sat_temp = np.amax(sol_saturation)
+            #if max_sat <= max_sat_temp:
+            #    max_sat = max_sat_temp
             ################ Write Date to Ensight Outfile #################
             time = i * problem.time_stepping
             outfile.write_geometry_file_time_step(problem.my_x, problem.my_y)
@@ -1182,4 +1180,7 @@ if __name__ == "__main__":
 
             ################################################################
         outfile.finalize()
+        time1=ttt.time()
+        print time1-time0
+        #print np.amax(max_sat)
     main()
