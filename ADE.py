@@ -74,12 +74,12 @@ class PD(NOX.Epetra.Interface.Required,
             self.verbose = False
 
         #Flow properties
-        self.counter = 0 
+        #self.counter = 0 
 	self.permeability = np.array([[1.0e-3, 0.0],[0.0, 1.0e-3]])
-        self.low_viscosity = 1 
+        #self.low_viscosity = 1 
 	self.compressibility = 1.0
         self.density = 1000.0
-        self.steps = 3
+        #self.steps = 3
         self.R = 1.0 #log M when M is the ration between viscosities
 
         #Setup problem grid
@@ -801,9 +801,9 @@ class PD(NOX.Epetra.Interface.Required,
             Computes the peridynamic flow due to non-local pressure 
             differentials. Uses the formulation from Kayitar, Foster, & Sharma.
         """
-        self.counter += 1 
+        #self.counter += 1 
         comm = self.comm 
-        low_viscosity = self.low_viscosity 
+        #low_viscosity = self.low_viscosity 
 	#Access the field data
         neighbors = self.my_neighbors
 	neighborhood_graph = self.get_balanced_neighborhood_graph()
@@ -812,7 +812,7 @@ class PD(NOX.Epetra.Interface.Required,
         ref_mag_state = self.my_ref_mag_state
         volumes = self.my_volumes
         num_owned = neighborhood_graph.NumMyRows()
-        permeability = self.permeability
+        #permeability = self.permeability
 	compressibility = self.compressibility
         horizon = self.horizon
         density = self.density 
@@ -832,12 +832,12 @@ class PD(NOX.Epetra.Interface.Required,
         ######## calculate nonlocal states ###########
         pressure_state = ma.masked_array(pressure[neighbors] - 
                 pressure[:num_owned,None], mask=neighbors.mask)
-        saturation_state = ma.masked_array(saturation_n[neighbors]
-            -saturation_n[:num_owned,None], mask=neighbors.mask)
-        inv_visc_sum = ma.masked_array(invert_visc[neighbors] + 
-                invert_visc[:num_owned,None], mask=neighbors.mask)
+        saturation_state = ma.masked_array(saturation[neighbors]
+            -saturation[:num_owned,None], mask=neighbors.mask)
+        #inv_visc_sum = ma.masked_array(invert_visc[neighbors] + 
+        #        invert_visc[:num_owned,None], mask=neighbors.mask)
         gamma = 3.0 / ( np.pi * (horizon**2))
-        omega = self.omega 
+        omega = 1.0 
         ref_mag_state_invert = (ref_mag_state ** ( 2.0)) ** -1.0
         grad_c_x =  gamma * omega * saturation_state * (ref_pos_state_x) * ref_mag_state_invert 
         integ_grad_c_x = (grad_c_x * volumes[neighbors]).sum(axis=1)
@@ -871,15 +871,15 @@ class PD(NOX.Epetra.Interface.Required,
         ref_mag_state = self.my_ref_mag_state
         saturation_n = self.saturation_n
         volumes = self.my_volumes
-        permeability = self.permeability
-	compressibility = self.compressibility
+        #permeability = self.permeability
+	#compressibility = self.compressibility
         horizon = self.horizon
         density = self.density 
         time_stepping = self.time_stepping
         node_number = neighbors.shape[0]
         neighb_number = neighbors.shape[1]
-        size_upscaler = (node_number , neighb_number)
-        up_scaler = np.ones(size_upscaler)
+        #size_upscaler = (node_number , neighb_number)
+        #up_scaler = np.ones(size_upscaler)
         #peclet number 
         pe= 10000.0
         R=self.R 
@@ -892,14 +892,14 @@ class PD(NOX.Epetra.Interface.Required,
             -saturation[:num_owned,None], mask=neighbors.mask)
         pressure_state = ma.masked_array(pressure[neighbors] - 
                 pressure[:num_owned,None], mask=neighbors.mask)
-        saturation_n_state = ma.masked_array(saturation_n[neighbors]
-            -saturation_n[:num_owned,None], mask=neighbors.mask)
-        inv_visc_sum = ma.masked_array(invert_visc[neighbors] + 
-                invert_visc[:num_owned,None], mask=neighbors.mask)
+        #saturation_n_state = ma.masked_array(saturation_n[neighbors]
+        #    -saturation_n[:num_owned,None], mask=neighbors.mask)
+        #inv_visc_sum = ma.masked_array(invert_visc[neighbors] + 
+        #        invert_visc[:num_owned,None], mask=neighbors.mask)
+        # gamma is double due to upwinding process it should normal be 3.0/...
         gamma = 6.0 / ( np.pi * (horizon**2))
-        omega = self.omega 
+        omega = 1.0
         ref_mag_state_invert = (ref_mag_state ** ( 2.0)) ** -1.0
-
         #finding velocity at everynode
         v_x_neigh = gamma * omega * pressure_state * ref_pos_state_x *(ref_mag_state_invert) 
         v_x =(v_x_neigh * volumes[neighbors]).sum(axis=1)
@@ -930,7 +930,6 @@ class PD(NOX.Epetra.Interface.Required,
         grad_c_x = up_scaler * grad_c_x
         integ_grad_c_x = (grad_c_x * volumes[neighbors]).sum(axis=1)
         grad_p_x = gamma * omega * pressure_state * (ref_pos_state_x ) * ref_mag_state_invert
-        #implimenting upwinding
         grad_p_x = up_scaler * grad_p_x
         integ_grad_p_x = (grad_p_x * volumes[neighbors]).sum(axis=1)
         grad_p_grad_c_x = integ_grad_p_x * integ_grad_c_x 
@@ -940,8 +939,6 @@ class PD(NOX.Epetra.Interface.Required,
         grad_p_y = gamma * omega * pressure_state * (ref_pos_state_y ) * ref_mag_state_invert
         grad_p_y = up_scaler * grad_p_y
         integ_grad_p_y = (grad_p_y * volumes[neighbors]).sum(axis=1)
-        
-
         grad_p_grad_c_y = integ_grad_p_y * integ_grad_c_y 
         grad_terms = grad_p_grad_c_x + grad_p_grad_c_y 
         laplace_c = gamma * omega * ref_mag_state_invert * saturation_state 
