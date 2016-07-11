@@ -56,7 +56,7 @@ class PD(NOX.Epetra.Interface.Required,
 	# Domain properties
         self.iteration = 0
         self.num_nodes = num_nodes
-        self.time_stepping = 0.025
+        self.time_stepping = 0.0025
         self.grid_spacing = float(length) / (num_nodes - 1)
         self.bc_values = bc_values
         self.symm_bcs = symm_bcs
@@ -66,7 +66,7 @@ class PD(NOX.Epetra.Interface.Required,
         if horizon != None:
             self.horizon = horizon
         else:
-            self.horizon = 1.5 * self.grid_spacing
+            self.horizon = 2.5 * self.grid_spacing
 
         if verbose != None:
             self.verbose = True
@@ -80,7 +80,7 @@ class PD(NOX.Epetra.Interface.Required,
 	self.compressibility = 1.0
         self.density = 1000.0
         self.steps = 3
-        self.R = 2.5 #log M when M is the ration between viscosities
+        self.R = 1.0 #log M when M is the ration between viscosities
 
         #Setup problem grid
         self.create_grid(length, width, 0.0 )
@@ -1096,7 +1096,6 @@ if __name__ == "__main__":
         problem.omega = 1.0
         time0=ttt.time()
         neighbors = problem.my_neighbors
-        saturation_out = TemporaryFile()
 	#Define the initial guess
 	init_ps_guess = problem.get_ps_init()
    	ps_graph = problem.get_xy_balanced_neighborhood_graph()
@@ -1107,9 +1106,7 @@ if __name__ == "__main__":
         s_local_overlap_indices = problem.s_local_overlap_indices 
         p_local_overlap_indices = problem.p_local_overlap_indices 
         problem.saturation_n = problem.ps_overlap[s_local_overlap_indices]
-        saturation_n = np.load('saturation_out.npy')
-        #print Outfile
-        #saturation_n = problem.saturation_n
+        
         #problem.p_left_BC= np.zeros(len(problem.BC_Left_fill_p), dtype = np.int32)
 	#problem.p_left_BC = 5000.0/3.0
 	ps_overlap_importer = problem.get_xy_overlap_importer()
@@ -1137,9 +1134,21 @@ if __name__ == "__main__":
         graph = problem.get_balanced_neighborhood_graph()
         balanced_map = problem.get_balanced_map()
         problem.iteration=0
-        end_range = 10
+        end_range = 1
         max_sat =0.0
         max_sat_temp =0.0
+
+        """ loading previous results"""
+        #pre_ps_guess = np.load('ps_out.npy')
+        #print pre_ps_guess
+        #pre_s_n = np.load('sol_out.npy')
+        #init_ps_guess[p_local_indices]=pre_ps_guess[p_local_indices]
+        #init_ps_guess[s_local_indices]= pre_ps_guess[s_local_indices]
+        ##print init_ps_guess
+        #my_ps_overlap.Import( pre_s_n, ps_overlap_importer, Epetra.Insert )
+        #problem.saturation_n = my_ps_overlap[s_local_overlap_indices] 
+        ##print problem.saturation_n
+        #ttt.sleep(10)
         for problem.iteration in range(end_range):
             i = problem.iteration
             print i  
@@ -1167,9 +1176,10 @@ if __name__ == "__main__":
             #start from the initial guess of zero 
             init_ps_guess[s_local_indices]= solution[s_local_indices]
             #saturation_n = solution[s_local_indices]
-
             my_ps_overlap.Import( solution, ps_overlap_importer, Epetra.Insert )
             problem.saturation_n = my_ps_overlap[s_local_overlap_indices] 
+            #print problem.saturation_n
+            #print init_ps_guess
             problem.pressure = my_ps_overlap[p_local_overlap_indices]
             #if (i>0 and i%40==0):
             #    problem.moveback()
@@ -1210,10 +1220,14 @@ if __name__ == "__main__":
             outfile.write_case_file(comm)
 
             ################################################################
-        np.save('saturation_out',problem.saturation_n)
-
+        #for item in problem.rank:
+        #    np.save('ps_out','.',problem.precessor, init_ps_guess)
+        #np.save('ps_out',ps_out)
+        #sol_out = comm.GatherAll(problem.saturation_n).flatten()
+        #np.save('sol_out',sol_out)
         #outfile.seek(0)
         outfile.finalize()
+        #print problem.comm
         #time1=ttt.time()
         #print time1-time0
         #print np.amax(max_sat)
