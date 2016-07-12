@@ -36,7 +36,7 @@ class PD(NOX.Epetra.Interface.Required,
     def __init__(self, num_nodes, length, width=10.0, bc_regions=None, 
             bc_values=None, symm_bcs=False, horizon=None, verbose=None):
         """Instantiate the problem object"""
-        self.aspect_ratio = 0.2
+        self.aspect_ratio = 1.0
         width = length * self.aspect_ratio
         width = 0.0
         NOX.Epetra.Interface.Required.__init__(self)
@@ -54,9 +54,9 @@ class PD(NOX.Epetra.Interface.Required,
         if self.rank == 0: print("PDD.py version 0.4.0zzz\n")
 
 	# Domain properties
-        self.iteration = 0
+        #self.iteration = 0
         self.num_nodes = num_nodes
-        self.time_stepping = 0.0025
+        self.time_stepping = 0.0001
         self.grid_spacing = float(length) / (num_nodes - 1)
         self.bc_values = bc_values
         self.symm_bcs = symm_bcs
@@ -801,10 +801,7 @@ class PD(NOX.Epetra.Interface.Required,
             Computes the peridynamic flow due to non-local pressure 
             differentials. Uses the formulation from Kayitar, Foster, & Sharma.
         """
-        #self.counter += 1 
         comm = self.comm 
-        #low_viscosity = self.low_viscosity 
-	#Access the field data
         neighbors = self.my_neighbors
 	neighborhood_graph = self.get_balanced_neighborhood_graph()
 	ref_pos_state_x = self.my_ref_pos_state_x
@@ -812,15 +809,13 @@ class PD(NOX.Epetra.Interface.Required,
         ref_mag_state = self.my_ref_mag_state
         volumes = self.my_volumes
         num_owned = neighborhood_graph.NumMyRows()
-        #permeability = self.permeability
-	compressibility = self.compressibility
         horizon = self.horizon
         density = self.density 
         node_number = neighbors.shape[0]
         neighb_number = neighbors.shape[1]
         size_upscaler = (node_number , neighb_number)
         up_scaler = np.ones(size_upscaler)
-        # calling the saturation functions
+        # updating previous step's saturation values
         saturation_n = self.saturation_n
         #define viscosity dependence on saturation
         # R is the ratio between the two viscosities. We are taking R as 2 here.
@@ -834,8 +829,7 @@ class PD(NOX.Epetra.Interface.Required,
                 pressure[:num_owned,None], mask=neighbors.mask)
         saturation_state = ma.masked_array(saturation[neighbors]
             -saturation[:num_owned,None], mask=neighbors.mask)
-        #inv_visc_sum = ma.masked_array(invert_visc[neighbors] + 
-        #        invert_visc[:num_owned,None], mask=neighbors.mask)
+        
         gamma = 3.0 / ( np.pi * (horizon**2))
         omega = 1.0 
         ref_mag_state_invert = (ref_mag_state ** ( 2.0)) ** -1.0
@@ -871,15 +865,11 @@ class PD(NOX.Epetra.Interface.Required,
         ref_mag_state = self.my_ref_mag_state
         saturation_n = self.saturation_n
         volumes = self.my_volumes
-        #permeability = self.permeability
-	#compressibility = self.compressibility
         horizon = self.horizon
         density = self.density 
         time_stepping = self.time_stepping
         node_number = neighbors.shape[0]
         neighb_number = neighbors.shape[1]
-        #size_upscaler = (node_number , neighb_number)
-        #up_scaler = np.ones(size_upscaler)
         #peclet number 
         pe= 10000.0
         R=self.R 
@@ -892,10 +882,7 @@ class PD(NOX.Epetra.Interface.Required,
             -saturation[:num_owned,None], mask=neighbors.mask)
         pressure_state = ma.masked_array(pressure[neighbors] - 
                 pressure[:num_owned,None], mask=neighbors.mask)
-        #saturation_n_state = ma.masked_array(saturation_n[neighbors]
-        #    -saturation_n[:num_owned,None], mask=neighbors.mask)
-        #inv_visc_sum = ma.masked_array(invert_visc[neighbors] + 
-        #        invert_visc[:num_owned,None], mask=neighbors.mask)
+        
         # gamma is double due to upwinding process it should normal be 3.0/...
         gamma = 6.0 / ( np.pi * (horizon**2))
         omega = 1.0
@@ -903,29 +890,16 @@ class PD(NOX.Epetra.Interface.Required,
         #finding velocity at everynode
         v_x_neigh = gamma * omega * pressure_state * ref_pos_state_x *(ref_mag_state_invert) 
         v_x =(v_x_neigh * volumes[neighbors]).sum(axis=1)
+        v_x = invert_visc[:num_owned] * v_x
         v_y_neigh = gamma * omega * pressure_state * (ref_pos_state_y) *(ref_mag_state_invert) 
         v_y =(v_y_neigh * volumes[neighbors]).sum(axis=1)
+        v_y = invert_visc[:num_owned] * v_y
         size_ref =ref_pos_state_x.shape
         direction = np.zeros(shape=(size_ref[0],size_ref[1]))
         direction = ref_pos_state_x * v_x[:,np.newaxis] + ref_pos_state_y * v_y[:,np.newaxis]
-        #for i in range(size_ref[0]):
-        #    for j in range(size_ref[1]):
-        #        sign = v_x[i]*ref_pos_state_x[i,j] + v_y[i] *ref_pos_state_y[i,j]
-        #        if sign >=0:
-        #            direction[i,j]=1
-        #print direction
         
-        #sign = v_x.dot(ref_pos_state_x) + v_y.dot(ref_pos_state_y)
         up_scaler =  direction.clip(min=0)/direction
-        #ttt.sleep(1)
-        #up_scaler = direction
-        #print up_scaler
-        #up_scaler = pressure_state.clip(min=0)/pressure_state
-        #print up_scaler
-        #ttt.sleep(1)
-        #print up_scaler
-        #ttt.sleep(20)
-        #print up_scaler.shape
+        
         grad_c_x =  gamma * omega * saturation_state * (ref_pos_state_x) * ref_mag_state_invert 
         grad_c_x = up_scaler * grad_c_x
         integ_grad_c_x = (grad_c_x * volumes[neighbors]).sum(axis=1)
@@ -946,8 +920,8 @@ class PD(NOX.Epetra.Interface.Required,
         integ_laplace_c = (laplace_c * volumes[neighbors]).sum(axis=1)
         term_contributions = (invert_visc[:num_owned] * grad_terms) + ((2.0/pe) * integ_laplace_c)
         
-        
         residual=(((saturation[:num_owned] - saturation_n[:num_owned]) / time_stepping )- term_contributions)
+        
         #Sum the flux contribution from j nodes to i node
         trans[:] = 0.0
 	trans[:num_owned] += (residual)
@@ -1086,34 +1060,21 @@ if __name__ == "__main__":
 
     def main():
 	#Create the PD object
-        nodes=1000
+        nodes=10000
 	problem = PD(nodes,10.0)
         comm = problem.comm 
-        num_owned = problem.neighborhood_graph.NumMyRows()
-        problem.omega = 1.0
-        time0=ttt.time()
-        neighbors = problem.my_neighbors
 	#Define the initial guess
 	init_ps_guess = problem.get_ps_init()
    	ps_graph = problem.get_xy_balanced_neighborhood_graph()
         p_local_indices = problem.p_local_indices
         s_local_indices = problem.s_local_indices 
         time_stepping = problem.time_stepping
-        init_s = init_ps_guess[ s_local_indices ] 
         s_local_overlap_indices = problem.s_local_overlap_indices 
-        p_local_overlap_indices = problem.p_local_overlap_indices 
         problem.saturation_n = problem.ps_overlap[s_local_overlap_indices]
         
-        #problem.p_left_BC= np.zeros(len(problem.BC_Left_fill_p), dtype = np.int32)
-	#problem.p_left_BC = 5000.0/3.0
 	ps_overlap_importer = problem.get_xy_overlap_importer()
         ps_overlap_map = problem.get_xy_overlap_map()
         my_ps_overlap = problem.my_ps_overlap
-        ref_pos_state_x = problem.my_ref_pos_state_x
-        ref_pos_state_y = problem.my_ref_pos_state_y 
-        #s_n_local_indices = 
-        #for i in range(len(s_n_local_indices)):
-        #    s_n_local_indices[i] = (s_local_indices[i]-1.0) / 2.0
 
 	#Initialize and change some NOX settings
 	nl_params = NOX.Epetra.defaultNonlinearParameters(problem.comm,2)
@@ -1128,28 +1089,21 @@ if __name__ == "__main__":
         scalar_variables = ['pressure','saturation']
         outfile = Ensight('output',vector_variables, scalar_variables, 
         problem.comm, viz_path=VIZ_PATH)
-        graph = problem.get_balanced_neighborhood_graph()
-        balanced_map = problem.get_balanced_map()
-        problem.iteration=0
-        end_range = 1
-        max_sat =0.0
-        max_sat_temp =0.0
+        end_range = 5
 
-        """ loading previous results"""
-        #pre_ps_guess = np.load('ps_out.npy')
-        #print pre_ps_guess
-        #pre_s_n = np.load('sol_out.npy')
-        #init_ps_guess[p_local_indices]=pre_ps_guess[p_local_indices]
-        #init_ps_guess[s_local_indices]= pre_ps_guess[s_local_indices]
-        ##print init_ps_guess
-        #my_ps_overlap.Import( pre_s_n, ps_overlap_importer, Epetra.Insert )
-        #problem.saturation_n = my_ps_overlap[s_local_overlap_indices] 
-        ##print problem.saturation_n
-        #ttt.sleep(10)
-        for problem.iteration in range(end_range):
-            i = problem.iteration
+
+        ############## Reading simulations results from previous run ##########
+        for j in range(problem.size):
+            if problem.rank == j:
+                pre_sol = np.load('sol_out'+'-'+str(j)+'.npy')
+                pre_sat = np.load('sat_out'+'-'+str(j)+'.npy')
+        init_ps_guess[p_local_indices]=pre_sol[p_local_indices]
+        init_ps_guess[s_local_indices]= pre_sol[s_local_indices]
+        problem.saturation_n = pre_sat
+
+
+        for i in range(end_range):
             print i  
-            problem.iteration_BC = i 
             """ USE Finite Difference Coloring to compute jacobian.  Distinction is made 
                     between fdc and solver, as fdc handles export to overlap automatically """
             problem.jac_comp = True
@@ -1175,34 +1129,11 @@ if __name__ == "__main__":
             #saturation_n = solution[s_local_indices]
             my_ps_overlap.Import( solution, ps_overlap_importer, Epetra.Insert )
             problem.saturation_n = my_ps_overlap[s_local_overlap_indices] 
-            #print problem.saturation_n
-            #print init_ps_guess
-            problem.pressure = my_ps_overlap[p_local_overlap_indices]
-            #if (i>0 and i%40==0):
-            #    problem.moveback()
-
+            
             #plotting the results 
             sol_pressure = solution[p_local_indices]
             sol_saturation = solution[s_local_indices]
-            """
-            print "hger"
-            pressure_state = ma.masked_array(problem.pressure[neighbors] - 
-                problem.pressure[:num_owned,None], mask=neighbors.mask)
-            print "pressure"
-            v_x_neigh = gamma * omega * pressure_state * ref_pos_state_x *(ref_mag_state_invert) 
-            v_x =(v_x_neigh * volumes[neighbors]).sum(axis=1)
             
-            v_y_neigh = gamma * omega * pressure_state * (ref_pos_state_y) *(ref_mag_state_invert) 
-            v_y =(v_y_neigh * volumes[neighbors]).sum(axis=1)
-            print "velocity calcd"
-            size_ref =ref_pos_state_x.shape
-            direction = np.zeros(shape=(size_ref[0],size_ref[1]))
-            #print v_x
-            """
-
-            #max_sat_temp = np.amax(sol_saturation)
-            #if max_sat <= max_sat_temp:
-            #    max_sat = max_sat_temp
             ################ Write Date to Ensight Outfile #################
             time = i * problem.time_stepping
             outfile.write_geometry_file_time_step(problem.my_x, problem.my_y)
@@ -1217,15 +1148,14 @@ if __name__ == "__main__":
             outfile.write_case_file(comm)
 
             ################################################################
-        #for item in problem.rank:
-        #    np.save('ps_out','.',problem.precessor, init_ps_guess)
-        #np.save('ps_out',ps_out)
-        #sol_out = comm.GatherAll(problem.saturation_n).flatten()
-        #np.save('sol_out',sol_out)
-        #outfile.seek(0)
+
+        ############### Saving results to be used for future runs ##############
+        for i in range(problem.size):
+            if problem.rank == i:
+                np.save('sol_out'+'-'+str(i),solution)
+                np.save('sat_out'+'-'+str(i),problem.saturation_n)
+
+
+
         outfile.finalize()
-        #print problem.comm
-        #time1=ttt.time()
-        #print time1-time0
-        #print np.amax(max_sat)
     main()
