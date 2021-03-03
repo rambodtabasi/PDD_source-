@@ -801,9 +801,32 @@ class PD(NOX.Epetra.Interface.Required,
         self.BC_fill_right_end_p = BC_fill_p
         self.BC_fill_right_end_s = BC_fill_s
 
+
+
+
+        global_overlap_indices = (self.get_overlap_map().MyGlobalElements())
+        # setting up the reshaping parameters
+        self.sorted_local_indices = np.argsort(global_overlap_indices)
+
+        self.unsorted_local_indices = np.arange(global_overlap_indices.shape[0])[
+            self.sorted_local_indices]
+
+        x_max = np.amax(my_x_overlap)
+        x_min = np.amin(my_x_overlap)
+        y_max = np.amax(my_y_overlap)
+        y_min = np.amin(my_y_overlap)
+        delta_x = x_max-x_min
+        delta_y = y_max-y_min
+        # print self.grid_spacing
+        x_length = delta_x/self.grid_spacing
+        y_length = delta_y/self.grid_spacing
+        self.my_y_stride = y_length+1
+        self.my_x_stride = x_length +1
+
+
         return
 
-    def compute_flow(self, pressure, flow, saturation, flag):
+    def compute_flow(self, pressure, flow,trans, saturation, flag):
         """
             Computes the peridynamic flow due to non-local pressure
             differentials. Uses the formulation from Kayitar, Foster, & Sharma.
@@ -821,16 +844,19 @@ class PD(NOX.Epetra.Interface.Required,
         node_number = neighbors.shape[0]
         neighb_number = neighbors.shape[1]
         size_upscaler = (node_number, neighb_number)
+        time_stepping = self.time_stepping
         #up_scaler = np.ones(size_upscaler)
         # updating previous step's saturation values
         saturation_n = self.saturation_n
         # define viscosity dependence on saturation
         # R is the ratio between the two viscosities. We are taking R as 2 here.
+        pe = 10000
         R = self.R
         size = saturation.shape
         ones = np.ones(size)
         viscos = np.exp(R*(ones - saturation_n))
         invert_visc = (viscos) ** (-1.0)
+        """
         ######## calculate nonlocal states ###########
         pressure_state = ma.masked_array(pressure[neighbors] -
                                          pressure[:num_owned, None], mask=neighbors.mask)
@@ -840,24 +866,9 @@ class PD(NOX.Epetra.Interface.Required,
             ref_mag_state_invert = (ref_mag_state ** (1.0)) ** -1.0
         else:
             ref_mag_state_invert = (ref_mag_state ** (2.0)) ** -1.0
-
         gamma_c = self.gamma_c
         gamma_p = self.gamma_p
         omega = self.omega
-        """
-        #finding velocity at everynode
-        v_x_neigh = gamma_p * omega * pressure_state * ref_pos_state_x *(ref_mag_state_invert)
-        v_x =(v_x_neigh * volumes[neighbors]).sum(axis=1)
-        v_x = invert_visc[:num_owned] * v_x
-        v_y_neigh = gamma_p * omega * pressure_state * (ref_pos_state_y) *(ref_mag_state_invert)
-        v_y =(v_y_neigh * volumes[neighbors]).sum(axis=1)
-        v_y = invert_visc[:num_owned] * v_y
-        size_ref =ref_pos_state_x.shape
-        direction = np.zeros(shape=(size_ref[0],size_ref[1]))
-        direction = ref_pos_state_x * v_x[:,np.newaxis] + ref_pos_state_y * v_y[:,np.newaxis]
-        up_scaler =  direction.clip(min=0)/direction
-        """
-
         up_scaler = self.up_scaler
         grad_c_x = gamma_c * omega * saturation_state * \
             (ref_pos_state_x) * ref_mag_state_invert
@@ -879,64 +890,6 @@ class PD(NOX.Epetra.Interface.Required,
         laplace_p = gamma_p * omega * ref_mag_state_invert * pressure_state
         integ_laplace_p = (laplace_p * volumes[neighbors]).sum(axis=1)
         residual_flow = (R * grad_terms) + (2.0 * integ_laplace_p)
-        self.flow = residual_flow
-        flow[:] = 0.0
-        flow[:num_owned] += residual_flow
-        return
-
-    def compute_saturation(self, saturation, trans, pressure, flag):
-        #    Computes the peridynamic saturation due to non-local pressure
-        #    differentials.
-        # Access the field data
-        neighbors = self.my_neighbors
-        neighborhood_graph = self.get_balanced_neighborhood_graph()
-        balanced_map = self.get_balanced_map()
-        num_owned = neighborhood_graph.NumMyRows()
-        ref_pos_state_x = self.my_ref_pos_state_x
-        ref_pos_state_y = self.my_ref_pos_state_y
-        ref_mag_state = self.my_ref_mag_state
-        saturation_n = self.saturation_n
-        volumes = self.my_volumes
-        horizon = self.horizon
-        density = self.density
-        time_stepping = self.time_stepping
-        node_number = neighbors.shape[0]
-        neighb_number = neighbors.shape[1]
-        # peclet number
-        pe = 10000.0
-        R = self.R
-        size = saturation.shape
-        ones = np.ones(size)
-        viscos = np.exp(R*(ones - saturation_n))
-        invert_visc = (viscos) ** (-1.0)
-        # Compute saturation and pressure state
-        saturation_state = ma.masked_array(saturation[neighbors]
-                                           - saturation[:num_owned, None], mask=neighbors.mask)
-        pressure_state = ma.masked_array(pressure[neighbors] -
-                                         pressure[:num_owned, None], mask=neighbors.mask)
-
-        # gamma is double due to upwinding process it should normal be 3.0/...
-        gamma_c = self.gamma_c
-        gamma_p = self.gamma_p
-
-        omega = self.omega
-        if self.width == 0:
-            ref_mag_state_invert = (ref_mag_state ** (1.0)) ** -1.0
-        else:
-            ref_mag_state_invert = (ref_mag_state ** (2.0)) ** -1.0
-        """
-        #finding velocity at everynode
-        v_x_neigh = gamma_p * omega * pressure_state * ref_pos_state_x *(ref_mag_state_invert)
-        v_x =(v_x_neigh * volumes[neighbors]).sum(axis=1)
-        v_x = invert_visc[:num_owned] * v_x
-        v_y_neigh = gamma_p * omega * pressure_state * (ref_pos_state_y) *(ref_mag_state_invert)
-        v_y =(v_y_neigh * volumes[neighbors]).sum(axis=1)
-        v_y = invert_visc[:num_owned] * v_y
-        size_ref =ref_pos_state_x.shape
-        direction = np.zeros(shape=(size_ref[0],size_ref[1]))
-        direction = ref_pos_state_x * v_x[:,np.newaxis] + ref_pos_state_y * v_y[:,np.newaxis]
-        up_scaler =  direction.clip(min=0)/direction
-        """
         # print volumes[neighbors].shape
         # ttt.sleep(3)
         up_scaler = self.up_scaler
@@ -969,8 +922,53 @@ class PD(NOX.Epetra.Interface.Required,
 
         residual = (
             ((saturation[:num_owned] - saturation_n[:num_owned]) / time_stepping) - term_contributions)
+        """
+        x_stride = int(self.my_x_stride)
 
-        # Sum the flux contribution from j nodes to i node
+        # reshape velocities
+        #ux[-x_stride:]=1.0
+        # Theses are the sorted and reshaped overlap vectors
+        ux = pressure
+        uy = saturation
+        ux_n = self.pressure_n
+        uy_n = self.saturation_n
+        my_ux = ux[self.sorted_local_indices].reshape(
+            int(self.my_y_stride), -1)
+        my_uy = uy[self.sorted_local_indices].reshape(
+            int(self.my_y_stride), -1)
+        my_ux_n = ux_n[self.sorted_local_indices].reshape(
+            int(self.my_y_stride), -1)
+        my_uy_n = uy_n[self.sorted_local_indices].reshape(
+            int(self.my_y_stride), -1)
+
+        term_x = my_ux
+        term_y = my_uy
+        self.delta_x = self.grid_spacing
+
+        term_x[:, :-1] = (my_ux[:, 1:] - my_ux[:, :-1]) + 9.81
+        #term_x[:-1, :] = (my_ux[1:, :] - my_ux[:-1, :])
+        term_y[:, :-1] = (my_uy[:, 1:] - my_uy[:, :-1]) + 9.81
+        #term_y[:-1, :] = (my_uy[1:, :] - my_uy[:-1, :])
+
+        #Add these terms into the residual
+        x_flat = term_x.flatten()
+        y_flat = term_y.flatten()
+
+        ####resorting to put ghost nodes last
+        if self.rank ==1:
+            ghost_val_x = x_flat[:x_stride]
+            ghost_val_y = y_flat[:x_stride]
+            term_x_unsorted = np.append(x_flat[x_stride:], ghost_val_x)
+            term_y_unsorted = np.append(y_flat[x_stride:], ghost_val_y)
+        else:
+            term_x_unsorted = x_flat
+            term_y_unsorted = y_flat
+
+        residual_flow =  term_x_unsorted[:num_owned]
+        residual =  term_y_unsorted[:num_owned]
+
+        flow[:] = 0.0
+        flow[:num_owned] += residual_flow
         trans[:] = 0.0
         trans[:num_owned] += (residual)
         return
@@ -1007,11 +1005,10 @@ class PD(NOX.Epetra.Interface.Required,
             my_s_overlap = self.ps_overlap[s_local_overlap_indices]
 
             # Compute the internal flow
-            self.compute_flow(my_p_overlap, self.my_flow_overlap,
-                              my_s_overlap, flag)
+            self.compute_flow(my_p_overlap, self.my_flow_overlap,self.my_trans_overlap,my_s_overlap, flag)
             # compute saturation field
-            self.compute_saturation(
-                my_s_overlap, self.my_trans_overlap, my_p_overlap, flag)
+            #self.compute_saturation(
+            #    my_s_overlap, self.my_trans_overlap, my_p_overlap, flag)
             # Communicate values from worker vectors (owned + ghosts) back to
             # owned only
             self.my_flow.Export(self.my_flow_overlap, overlap_importer,
@@ -1031,16 +1028,15 @@ class PD(NOX.Epetra.Interface.Required,
             F[:] = self.F_fill[:]
             #F[self.BC_Left_fill_s_dist] = x[self.BC_Left_fill_s_dist]-1.0
             #F[self.BC_Left_fill_s_double] = x[self.BC_Left_fill_s_double] - 1.0
-            F[self.BC_Left_fill_p_double] = x[self.BC_Left_fill_p_double] - 1500.0
-            F[self.BC_Right_fill_p] = x[self.BC_Right_fill_p] - 0.0
+            F[self.BC_Left_fill_p] = x[self.BC_Left_fill_p] - 10000.0
             F[self.BC_Right_fill_s] = x[self.BC_Right_fill_s] - 0.0
-            F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] - 1.0
+            F[self.BC_Left_fill_s] = x[self.BC_Left_fill_s] -0.0
             #F[self.BC_Top_fill_p] = x[self.BC_Top_fill_p] -1000.0
-            #F[self.BC_Bottom_fill_p] = x[self.BC_Bottom_fill_p] -0.0
+            #F[self.BC_Bottom_fill_p] = x[self.BC_Bottom_fill_p] -10.0
+            #F[self.BC_Bottom_fill_s] = x[self.BC_Bottom_fill_s] -10.0
             #F[self.center_fill_s] = x[self.center_fill_s] - 1.0
-            #F[self.center_fill_p] = x[self.center_fill_p] - 2000.0
+            ###F[self.center_fill_p] = x[self.center_fill_p] - 2000.0
 
-            # print my_p_overlap
             self.i = self.i + 1
 
         except Exception, e:
@@ -1133,7 +1129,7 @@ if __name__ == "__main__":
     def main():
         # Create the PD object
         i = 0
-        nodes = 40
+        nodes = 80
         problem = PD(nodes, 10.0)
         comm = problem.comm
         # Define the initial guess
@@ -1145,6 +1141,7 @@ if __name__ == "__main__":
         s_local_overlap_indices = problem.s_local_overlap_indices
         p_local_overlap_indices = problem.p_local_overlap_indices
         problem.saturation_n = problem.ps_overlap[s_local_overlap_indices]
+        problem.pressure_n = problem.ps_overlap[p_local_overlap_indices]
         ref_pos_state_x = problem.my_ref_pos_state_x
         ref_pos_state_y = problem.my_ref_pos_state_y
         ref_mag_state = problem.my_ref_mag_state
@@ -1252,7 +1249,7 @@ if __name__ == "__main__":
             # Create NOX solver object, solve for pressure and saturation
             if i < 5:
                 solver = NOX.Epetra.defaultSolver(init_ps_guess, problem,
-                                                  problem, jacobian, nlParams=nl_params, maxIters=2500,
+                                                  problem, jacobian, nlParams=nl_params, maxIters=25,
                                                   wAbsTol=None, wRelTol=None, updateTol=None, absTol=5.0e-5, relTol=None)
             else:
                 solver = NOX.Epetra.defaultSolver(init_ps_guess, problem,
@@ -1270,6 +1267,7 @@ if __name__ == "__main__":
             my_ps_overlap.Import(solution, ps_overlap_importer, Epetra.Insert)
             problem.saturation_n = my_ps_overlap[s_local_overlap_indices]
             pressure_n = my_ps_overlap[p_local_overlap_indices]
+            problem.pressure_n = pressure_n
             # plotting the results
             sol_pressure = solution[p_local_indices]
             sol_saturation = solution[s_local_indices]
